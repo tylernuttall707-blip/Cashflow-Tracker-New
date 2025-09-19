@@ -100,7 +100,8 @@ main { padding: 20px 0; display: grid; gap: 16px; }
 .table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 .freq-only.hidden { display:none; }
-.exp-freq-only.hidden { display:none; }
+.tx-recurring-only.hidden { display:none; }
+.tx-freq-only.hidden { display:none; }
 
 .tab-panel { display:none; }
 .tab-panel.active { display:block; }
