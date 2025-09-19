@@ -16,6 +16,13 @@
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
   const uid = () => Math.random().toString(36).slice(2, 9);
+  const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const getDOWLabel = (value) => {
+    const n = Number(value);
+    if (Number.isNaN(n)) return DOW_LABELS[0];
+    const idx = ((n % 7) + 7) % 7;
+    return DOW_LABELS[idx] ?? DOW_LABELS[0];
+  };
 
   const todayYMD = (() => {
     const d = new Date();
@@ -247,6 +254,28 @@
     }
   };
 
+  const shouldApplyTransactionOn = (date, tx) => {
+    if (!tx || typeof tx !== "object") return false;
+    const repeats = Boolean(tx.repeats);
+    if (!repeats) {
+      return toYMD(date) === tx.date;
+    }
+
+    if (!tx.frequency || !tx.startDate || !tx.endDate) return false;
+
+    const shim = {
+      frequency: tx.frequency,
+      startDate: tx.startDate,
+      endDate: tx.endDate,
+      onDate: tx.onDate || null,
+      skipWeekends: Boolean(tx.skipWeekends),
+      dayOfWeek: Number(tx.dayOfWeek ?? 0),
+      dayOfMonth: Number(tx.dayOfMonth ?? 1),
+    };
+
+    return shouldApplyStreamOn(date, shim);
+  };
+
   // ---------- Projection ----------
   const generateCalendar = (startYMD, endYMD) => {
     const start = fromYMD(startYMD);
@@ -262,23 +291,18 @@
     const { settings, oneOffs, incomeStreams, adjustments } = state;
     const cal = generateCalendar(settings.startDate, settings.endDate);
 
-    // Accumulate one-offs by exact date
-    const byDate = new Map(cal.map((row) => [row.date, row]));
-    const singles = [];
-    const recurring = [];
-    for (const tx of oneOffs) {
-      if (!tx || typeof tx !== "object") continue;
-      if (tx.recurring) recurring.push(tx);
-      else singles.push(tx);
-    }
+// Accumulate one-offs by exact date
+const byDate = new Map(cal.map((row) => [row.date, row]));
 
-    for (const tx of singles) {
-      const row = byDate.get(tx.date);
-      if (!row) continue;
-      const amt = Number(tx.amount || 0);
-      if (tx.type === "expense") row.expenses += Math.abs(amt);
-      else row.income += Math.abs(amt);
-    }
+for (const tx of oneOffs) {
+  if (!tx || typeof tx !== "object") continue;
+  const row = byDate.get(tx.date);
+  if (!row) continue;
+  const amt = Number(tx.amount || 0);
+  if (!amt) continue;
+  if (tx.type === "expense") row.expenses += Math.abs(amt);
+  else row.income += Math.abs(amt);
+}
 
     // Apply recurring income streams
     for (const st of incomeStreams) {
@@ -411,84 +435,117 @@
   };
 
   // One-offs
-  const renderOneOffs = () => {
-    const tbody = $("#oneOffTable tbody");
-    tbody.innerHTML = "";
-    const singles = [];
-    const recurring = [];
-    for (const tx of STATE.oneOffs) {
-      if (!tx || typeof tx !== "object") continue;
-      if (tx.recurring) recurring.push(tx);
-      else singles.push(tx);
+  const describeTransactionSchedule = (tx) => {
+    if (!tx || !tx.repeats || !tx.frequency) return "—";
+
+    const range = tx.startDate && tx.endDate ? ` (${tx.startDate} → ${tx.endDate})` : "";
+    switch (tx.frequency) {
+      case "daily":
+        return `Daily${tx.skipWeekends ? " (M–F)" : ""}${range}`;
+      case "weekly":
+        return `Weekly on ${getDOWLabel(tx.dayOfWeek)}${range}`;
+      case "biweekly":
+        return `Every 2 weeks on ${getDOWLabel(tx.dayOfWeek)}${range}`;
+      case "monthly":
+        return `Monthly on day ${clamp(Number(tx.dayOfMonth ?? 1), 1, 31)}${range}`;
+      default:
+        return `Repeats${range}`;
+    }
+  };
+
+const renderOneOffs = () => {
+  const tbody = $("#oneOffTable tbody");
+  tbody.innerHTML = "";
+
+  const rows = [...(STATE.oneOffs || [])]
+    .filter((tx) => tx && typeof tx === "object")
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  for (const tx of rows) {
+    const amt = Number(tx.amount || 0);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${tx.date || ""}</td>
+      <td>${tx.type || ""}</td>
+      <td>${tx.name || ""}</td>
+      <td>${tx.category || ""}</td>
+      <td class="num">${fmtMoney(amt)}</td>
+      <td><button class="link" data-id="${tx.id}" data-act="delOneOff">Delete</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+};
+
+  const showTransactionFreqBlocks = () => {
+    const form = $("#oneOffForm");
+    if (!form) return;
+    const repeats = $("#ooRepeats").checked;
+    const recurringFields = $$(".tx-recurring-only", form);
+    const freqFields = $$(".tx-freq-only", form);
+
+    if (!repeats) {
+      recurringFields.forEach((el) => el.classList.add("hidden"));
+      freqFields.forEach((el) => el.classList.add("hidden"));
+      return;
     }
 
-    singles.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
-    recurring.sort((a, b) => {
-      const aStart = (a.startDate || "").localeCompare(b.startDate || "");
-      if (aStart !== 0) return aStart;
-      return (a.name || "").localeCompare(b.name || "");
-    });
+    recurringFields.forEach((el) => el.classList.remove("hidden"));
+    freqFields.forEach((el) => el.classList.add("hidden"));
 
-    const rows = [...singles, ...recurring];
-    for (const tx of rows) {
-      const amt = Number(tx.amount || 0);
-      const isRecurring = Boolean(tx.recurring);
-      const dateLabel = isRecurring
-        ? [tx.startDate, tx.endDate].filter(Boolean).join(" → ")
-        : tx.date;
-      const freqLabel = (() => {
-        if (!isRecurring) return "";
-        switch (tx.frequency) {
-          case "once":
-            return tx.onDate ? `Once on ${tx.onDate}` : "Once";
-          case "daily":
-            return `Daily${tx.skipWeekends ? " (M–F)" : ""}`;
-          case "weekly":
-            return tx.dayOfWeek !== undefined
-              ? `Weekly on ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][clamp(Number(tx.dayOfWeek || 0), 0, 6)]}`
-              : "Weekly";
-          case "biweekly":
-            return tx.dayOfWeek !== undefined
-              ? `Every 2 weeks on ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][clamp(Number(tx.dayOfWeek || 0), 0, 6)]}`
-              : "Every 2 weeks";
-          case "monthly":
-            return tx.dayOfMonth ? `Monthly on day ${tx.dayOfMonth}` : "Monthly";
-          default:
-            return "";
-        }
-      })();
-      const categoryLabel = isRecurring
-        ? [tx.category || "", freqLabel].filter(Boolean).join(" • ")
-        : tx.category || "";
-      const typeLabel = isRecurring ? `${tx.type} (recurring)` : tx.type;
+    const freq = $("#ooFreq").value;
+    $$(".tx-freq-" + freq, form).forEach((el) => el.classList.remove("hidden"));
 
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${dateLabel || ""}</td>
-        <td>${typeLabel}</td>
-        <td>${tx.name || ""}</td>
-        <td>${categoryLabel}</td>
-        <td class="num">${fmtMoney(amt)}</td>
-        <td><button class="link" data-id="${tx.id}" data-act="delOneOff">Delete</button></td>
-      `;
-      tbody.appendChild(tr);
+    const baseDate = $("#ooDate").value;
+    if (baseDate) {
+      const startInput = $("#ooStart");
+      const endInput = $("#ooEnd");
+      if (startInput && !startInput.value) startInput.value = baseDate;
+      if (endInput && !endInput.value) endInput.value = baseDate;
     }
   };
 
   const bindOneOffs = () => {
-    $("#oneOffForm").addEventListener("submit", (e) => {
-      e.preventDefault();
-      const date = $("#ooDate").value;
-      const type = $("#ooType").value;
-      const name = $("#ooName").value.trim();
-      const category = $("#ooCategory").value.trim();
-      const amount = Number($("#ooAmount").value || 0);
-      if (!date || !name || isNaN(amount)) return;
-      STATE.oneOffs.push({ id: uid(), date, type, name, category, amount: Math.abs(amount), recurring: false });
-      save(STATE);
-      $("#oneOffForm").reset();
-      recalcAndRender();
+    const form = $("#oneOffForm");
+    const freqSel = $("#ooFreq");
+    const repeatsToggle = $("#ooRepeats");
+    if (!form || !freqSel || !repeatsToggle) return;
+
+    repeatsToggle.addEventListener("change", showTransactionFreqBlocks);
+    freqSel.addEventListener("change", showTransactionFreqBlocks);
+    const dateInput = $("#ooDate");
+    dateInput?.addEventListener("change", () => {
+      if (!repeatsToggle.checked) return;
+      const baseDate = dateInput.value;
+      if (!baseDate) return;
+      const startInput = $("#ooStart");
+      const endInput = $("#ooEnd");
+      if (startInput && !startInput.value) startInput.value = baseDate;
+      if (endInput && !endInput.value) endInput.value = baseDate;
     });
+    showTransactionFreqBlocks();
+
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const date = $("#ooDate").value;
+  const type = $("#ooType").value;
+  const name = $("#ooName").value.trim();
+  const category = $("#ooCategory").value.trim();
+  const amount = Number($("#ooAmount").value || 0);
+  if (!date || !name || isNaN(amount)) return;
+
+  STATE.oneOffs.push({
+    id: uid(),
+    date,
+    type,
+    name,
+    category,
+    amount: Math.abs(amount)
+  });
+
+  save(STATE);
+  form.reset();
+  recalcAndRender();
+});
 
     $("#oneOffTable").addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-act='delOneOff']");
@@ -516,8 +573,8 @@
         switch (st.frequency) {
           case "once": return `On ${st.onDate}`;
           case "daily": return `Daily${st.skipWeekends ? " (M–F)" : ""}`;
-          case "weekly": return `Weekly on ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][st.dayOfWeek]}`;
-          case "biweekly": return `Every 2 weeks on ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][st.dayOfWeek]}`;
+          case "weekly": return `Weekly on ${getDOWLabel(st.dayOfWeek)}`;
+          case "biweekly": return `Every 2 weeks on ${getDOWLabel(st.dayOfWeek)}`;
           case "monthly": return `Monthly on day ${st.dayOfMonth}`;
           default: return "";
         }
