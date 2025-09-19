@@ -181,10 +181,16 @@
   };
 
   // Settings form
+  const renderSettingsForm = () => {
+    if (!STATE.settings) STATE.settings = defaultState().settings;
+    const settings = STATE.settings;
+    $("#startDate").value = settings.startDate || todayYMD;
+    $("#endDate").value = settings.endDate || defaultEnd;
+    $("#startingBalance").value = Number(settings.startingBalance || 0);
+  };
+
   const initSettings = () => {
-    $("#startDate").value = STATE.settings.startDate;
-    $("#endDate").value = STATE.settings.endDate || defaultEnd;
-    $("#startingBalance").value = Number(STATE.settings.startingBalance || 0);
+    renderSettingsForm();
 
     $("#settingsForm").addEventListener("submit", (e) => {
       e.preventDefault();
@@ -465,6 +471,7 @@
         STATE = parsed;
         save(STATE);
         dlg.close();
+        renderSettingsForm();
         recalcAndRender();
       } catch (err) {
         alert("Import failed: " + err.message);
