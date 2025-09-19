@@ -42,7 +42,6 @@
     adjustments: [],
     oneOffs: [],
     incomeStreams: [],
-    expenseStreams: [],
   });
 
   const normalizeState = (raw, { strict = false } = {}) => {
@@ -78,7 +77,101 @@
     ensureArray("adjustments");
     ensureArray("oneOffs");
     ensureArray("incomeStreams");
-    ensureArray("expenseStreams");
+
+    const sanitizeOneOff = (entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        if (strict) throw new Error("Invalid one-off record");
+        return null;
+      }
+
+      const amount = Number(entry.amount || 0);
+      if (!Number.isFinite(amount)) {
+        if (strict) throw new Error("Invalid one-off amount");
+        return null;
+      }
+
+      const type = entry.type === "income" ? "income" : "expense";
+      const id = typeof entry.id === "string" ? entry.id : uid();
+      const result = {
+        id,
+        type,
+        name: typeof entry.name === "string" ? entry.name : "",
+        category: typeof entry.category === "string" ? entry.category : "",
+        amount: Math.abs(amount),
+        recurring: Boolean(entry.recurring),
+      };
+
+      if (entry.note !== undefined) result.note = entry.note;
+
+      if (result.recurring) {
+        const frequency = typeof entry.frequency === "string" ? entry.frequency : null;
+        const startDate = typeof entry.startDate === "string" ? entry.startDate : null;
+        const endDate = typeof entry.endDate === "string" ? entry.endDate : null;
+        if (!frequency || !startDate || !endDate) {
+          if (strict) throw new Error("Invalid recurring one-off metadata");
+          return null;
+        }
+        result.frequency = frequency;
+        result.startDate = startDate;
+        result.endDate = endDate;
+        result.skipWeekends = Boolean(entry.skipWeekends);
+        if (entry.dayOfWeek !== undefined) {
+          result.dayOfWeek = clamp(Number(entry.dayOfWeek || 0), 0, 6);
+        }
+        if (entry.dayOfMonth !== undefined) {
+          result.dayOfMonth = clamp(Number(entry.dayOfMonth || 1), 1, 31);
+        }
+        if (typeof entry.onDate === "string") result.onDate = entry.onDate;
+        if (typeof entry.date === "string") result.date = entry.date;
+        else result.date = result.startDate;
+      } else {
+        const date = typeof entry.date === "string" ? entry.date : null;
+        if (!date) {
+          if (strict) throw new Error("Invalid one-off date");
+          return null;
+        }
+        result.date = date;
+      }
+
+      return result;
+    };
+
+    const sanitizeList = (list) =>
+      list
+        .map((item) => sanitizeOneOff(item))
+        .filter((item) => item !== null);
+
+    state.oneOffs = sanitizeList(state.oneOffs);
+
+    const legacyExpenses = Array.isArray(raw.expenseStreams) ? raw.expenseStreams : [];
+    if (legacyExpenses.length) {
+      const fallbackStart = state.settings.startDate;
+      const fallbackEnd = state.settings.endDate;
+      const mapped = legacyExpenses
+        .map((stream) => {
+          if (!stream || typeof stream !== "object" || Array.isArray(stream)) {
+            if (strict) throw new Error("Invalid legacy expense stream");
+            return null;
+          }
+          const candidate = {
+            ...stream,
+            id: typeof stream.id === "string" ? stream.id : uid(),
+            type: "expense",
+            recurring: true,
+            date: typeof stream.startDate === "string" ? stream.startDate : stream.onDate,
+            startDate:
+              typeof stream.startDate === "string" ? stream.startDate : fallbackStart,
+            endDate: typeof stream.endDate === "string" ? stream.endDate : fallbackEnd,
+          };
+          return sanitizeOneOff(candidate);
+        })
+        .filter((item) => item !== null);
+      if (mapped.length) {
+        state.oneOffs = [...state.oneOffs, ...mapped];
+      }
+    }
+
+    delete state.expenseStreams;
 
     if (typeof state.settings.startDate !== "string") {
       if (strict) throw new Error("Invalid settings.startDate");
@@ -195,33 +288,21 @@
   };
 
   const computeProjection = (state) => {
-    const { settings, oneOffs, incomeStreams, expenseStreams, adjustments } = state;
+    const { settings, oneOffs, incomeStreams, adjustments } = state;
     const cal = generateCalendar(settings.startDate, settings.endDate);
 
-    // Accumulate one-offs by exact date
-    const byDate = new Map(cal.map((row) => [row.date, row]));
-    for (const tx of oneOffs) {
-      const amt = Number(tx?.amount || 0);
-      if (!amt) continue;
+// Accumulate one-offs by exact date
+const byDate = new Map(cal.map((row) => [row.date, row]));
 
-      const applyToRow = (row) => {
-        if (!row) return;
-        if (tx.type === "expense") row.expenses += Math.abs(amt);
-        else row.income += Math.abs(amt);
-      };
-
-      const hasSchedule = Boolean(tx.repeats && tx.frequency && tx.startDate && tx.endDate);
-      if (hasSchedule) {
-        for (const row of cal) {
-          const d = fromYMD(row.date);
-          if (shouldApplyTransactionOn(d, tx)) {
-            applyToRow(row);
-          }
-        }
-      } else {
-        applyToRow(byDate.get(tx.date));
-      }
-    }
+for (const tx of oneOffs) {
+  if (!tx || typeof tx !== "object") continue;
+  const row = byDate.get(tx.date);
+  if (!row) continue;
+  const amt = Number(tx.amount || 0);
+  if (!amt) continue;
+  if (tx.type === "expense") row.expenses += Math.abs(amt);
+  else row.income += Math.abs(amt);
+}
 
     // Apply recurring income streams
     for (const st of incomeStreams) {
@@ -235,14 +316,18 @@
       }
     }
 
-    // Apply recurring expense streams
-    for (const st of expenseStreams || []) {
-      const amount = Number(st.amount || 0);
+    // Apply recurring one-offs
+    for (const tx of recurring) {
+      const amount = Number(tx.amount || 0);
       if (!amount) continue;
+      if (typeof tx.startDate !== "string" || typeof tx.endDate !== "string" || typeof tx.frequency !== "string") {
+        continue;
+      }
       for (const row of cal) {
         const d = fromYMD(row.date);
-        if (shouldApplyStreamOn(d, st)) {
-          row.expenses += amount;
+        if (shouldApplyStreamOn(d, tx)) {
+          if (tx.type === "expense") row.expenses += Math.abs(amount);
+          else row.income += Math.abs(amount);
         }
       }
     }
@@ -368,30 +453,28 @@
     }
   };
 
-  const renderOneOffs = () => {
-    const tbody = $("#oneOffTable tbody");
-    tbody.innerHTML = "";
-    const rows = [...STATE.oneOffs].sort((a, b) => {
-      const aKey = a.repeats && a.startDate ? a.startDate : a.date;
-      const bKey = b.repeats && b.startDate ? b.startDate : b.date;
-      return String(aKey || "").localeCompare(String(bKey || ""));
-    });
-    for (const tx of rows) {
-      const amt = Number(tx.amount || 0);
-      const schedule = describeTransactionSchedule(tx);
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${tx.date || ""}</td>
-        <td>${schedule}</td>
-        <td>${tx.type}</td>
-        <td>${tx.name || ""}</td>
-        <td>${tx.category || ""}</td>
-        <td class="num">${fmtMoney(amt)}</td>
-        <td><button class="link" data-id="${tx.id}" data-act="delOneOff">Delete</button></td>
-      `;
-      tbody.appendChild(tr);
-    }
-  };
+const renderOneOffs = () => {
+  const tbody = $("#oneOffTable tbody");
+  tbody.innerHTML = "";
+
+  const rows = [...(STATE.oneOffs || [])]
+    .filter((tx) => tx && typeof tx === "object")
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  for (const tx of rows) {
+    const amt = Number(tx.amount || 0);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${tx.date || ""}</td>
+      <td>${tx.type || ""}</td>
+      <td>${tx.name || ""}</td>
+      <td>${tx.category || ""}</td>
+      <td class="num">${fmtMoney(amt)}</td>
+      <td><button class="link" data-id="${tx.id}" data-act="delOneOff">Delete</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+};
 
   const showTransactionFreqBlocks = () => {
     const form = $("#oneOffForm");
@@ -441,60 +524,28 @@
     });
     showTransactionFreqBlocks();
 
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const date = $("#ooDate").value;
-      const type = $("#ooType").value;
-      const name = $("#ooName").value.trim();
-      const category = $("#ooCategory").value.trim();
-      const amount = Number($("#ooAmount").value || 0);
-      if (!date || !name || isNaN(amount)) return;
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const date = $("#ooDate").value;
+  const type = $("#ooType").value;
+  const name = $("#ooName").value.trim();
+  const category = $("#ooCategory").value.trim();
+  const amount = Number($("#ooAmount").value || 0);
+  if (!date || !name || isNaN(amount)) return;
 
-      const repeats = repeatsToggle.checked;
-      const record = {
-        id: uid(),
-        date,
-        type,
-        name,
-        category,
-        amount: Math.abs(amount),
-        repeats,
-      };
+  STATE.oneOffs.push({
+    id: uid(),
+    date,
+    type,
+    name,
+    category,
+    amount: Math.abs(amount)
+  });
 
-      if (repeats) {
-        let startDate = $("#ooStart").value || date;
-        let endDate = $("#ooEnd").value || startDate;
-        if (!startDate || !endDate) return;
-        if (endDate < startDate) {
-          [startDate, endDate] = [endDate, startDate];
-        }
-
-        const frequency = freqSel.value;
-        record.frequency = frequency;
-        record.startDate = startDate;
-        record.endDate = endDate;
-        record.skipWeekends = false;
-        record.dayOfWeek = Number($("#ooDOW").value || 0);
-        record.dayOfMonth = clamp(Number($("#ooDOM").value || 1), 1, 31);
-
-        if (frequency === "daily") {
-          record.skipWeekends = $("#ooSkipWeekends").checked;
-        }
-        if (frequency === "weekly" || frequency === "biweekly") {
-          record.dayOfWeek = Number($("#ooDOW").value || 0);
-        }
-        if (frequency === "monthly") {
-          record.dayOfMonth = clamp(Number($("#ooDOM").value || 1), 1, 31);
-        }
-      }
-
-      STATE.oneOffs.push(record);
-      save(STATE);
-      form.reset();
-      freqSel.value = "monthly";
-      showTransactionFreqBlocks();
-      recalcAndRender();
-    });
+  save(STATE);
+  form.reset();
+  recalcAndRender();
+});
 
     $("#oneOffTable").addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-act='delOneOff']");
