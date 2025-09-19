@@ -10,21 +10,22 @@
   <meta name="description" content="Static cash flow forecaster for the rest of 2025. All client-side." />
 </head>
 <body>
-  <header class="app-header">
-    <h1>2025 Cash Flow</h1>
-    <div class="header-actions">
-      <button id="exportBtn" class="btn">Export JSON</button>
-      <button id="importBtn" class="btn btn-outline">Import JSON</button>
-    </div>
-  </header>
+  <div class="app-shell">
+    <header class="app-header">
+      <h1>2025 Cash Flow</h1>
+      <div class="header-actions">
+        <button id="exportBtn" class="btn">Export JSON</button>
+        <button id="importBtn" class="btn btn-outline">Import JSON</button>
+      </div>
+    </header>
 
-  <nav class="tabs">
-    <button class="tab active" data-tab="dashboard">Dashboard</button>
-    <button class="tab" data-tab="movements">Cash Movements</button>
-    <button class="tab" data-tab="income">Income Plan</button>
-  </nav>
+    <nav class="tabs">
+      <button class="tab active" data-tab="dashboard">Dashboard</button>
+      <button class="tab" data-tab="movements">Cash Movements</button>
+      <button class="tab" data-tab="income">Income Plan</button>
+    </nav>
 
-  <main>
+    <main>
     <!-- DASHBOARD -->
     <section id="dashboard" class="tab-panel active">
       <div class="card grid-2">
@@ -242,23 +243,24 @@
         </table>
       </div>
     </section>
-  </main>
+    </main>
 
-  <dialog id="importDialog">
-    <form method="dialog" class="form">
-      <h3>Import JSON</h3>
-      <p>Paste data exported from this app (it will replace your current plan).</p>
-      <textarea id="importText" rows="10" spellcheck="false" placeholder='{"settings":{...},"oneOffs":[...],"incomeStreams":[...]}'></textarea>
-      <div class="actions">
-        <button class="btn btn-outline" value="cancel">Cancel</button>
-        <button id="confirmImportBtn" class="btn" value="default">Import</button>
-      </div>
-    </form>
-  </dialog>
+    <dialog id="importDialog">
+      <form method="dialog" class="form">
+        <h3>Import JSON</h3>
+        <p>Paste data exported from this app (it will replace your current plan).</p>
+        <textarea id="importText" rows="10" spellcheck="false" placeholder='{"settings":{...},"oneOffs":[...],"incomeStreams":[...]}'></textarea>
+        <div class="actions">
+          <button class="btn btn-outline" value="cancel">Cancel</button>
+          <button id="confirmImportBtn" class="btn" value="default">Import</button>
+        </div>
+      </form>
+    </dialog>
 
-  <footer class="app-footer">
-    <small>All data is stored locally in your browser. 💾</small>
-  </footer>
+    <footer class="app-footer">
+      <small>All data is stored locally in your browser. 💾</small>
+    </footer>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="app.js"></script>
