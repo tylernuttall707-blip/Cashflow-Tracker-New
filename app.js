@@ -35,6 +35,7 @@
     adjustments: [],
     oneOffs: [],
     incomeStreams: [],
+    expenseStreams: [],
   });
 
   const normalizeState = (raw, { strict = false } = {}) => {
@@ -70,6 +71,7 @@
     ensureArray("adjustments");
     ensureArray("oneOffs");
     ensureArray("incomeStreams");
+    ensureArray("expenseStreams");
 
     if (typeof state.settings.startDate !== "string") {
       if (strict) throw new Error("Invalid settings.startDate");
@@ -164,7 +166,7 @@
   };
 
   const computeProjection = (state) => {
-    const { settings, oneOffs, incomeStreams, adjustments } = state;
+    const { settings, oneOffs, incomeStreams, expenseStreams, adjustments } = state;
     const cal = generateCalendar(settings.startDate, settings.endDate);
 
     // Accumulate one-offs by exact date
@@ -185,6 +187,18 @@
         const d = fromYMD(row.date);
         if (shouldApplyStreamOn(d, st)) {
           row.income += amount;
+        }
+      }
+    }
+
+    // Apply recurring expense streams
+    for (const st of expenseStreams || []) {
+      const amount = Number(st.amount || 0);
+      if (!amount) continue;
+      for (const row of cal) {
+        const d = fromYMD(row.date);
+        if (shouldApplyStreamOn(d, st)) {
+          row.expenses += amount;
         }
       }
     }
@@ -432,6 +446,103 @@
     });
   };
 
+  const showExpenseFreqBlocks = () => {
+    const val = $("#exFreq").value;
+    $$(".exp-freq-only").forEach((el) => el.classList.add("hidden"));
+    $$(".exp-freq-" + val).forEach((el) => el.classList.remove("hidden"));
+  };
+
+  const renderExpenseStreams = () => {
+    const tbody = $("#expenseStreamsTable tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    const rows = [...(STATE.expenseStreams || [])].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    for (const st of rows) {
+      const schedule = (() => {
+        switch (st.frequency) {
+          case "daily":
+            return `Daily${st.skipWeekends ? " (M–F)" : ""}`;
+          case "weekly":
+            return `Weekly on ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][st.dayOfWeek]}`;
+          case "monthly":
+            return `Monthly on day ${st.dayOfMonth}`;
+          default:
+            return "";
+        }
+      })();
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${st.name}</td>
+        <td>${st.category || ""}</td>
+        <td>${st.frequency}</td>
+        <td>${schedule}</td>
+        <td class="num">${fmtMoney(Number(st.amount || 0))}</td>
+        <td>${st.startDate} → ${st.endDate}</td>
+        <td><button class="link" data-id="${st.id}" data-act="delExpenseStream">Delete</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  };
+
+  const bindExpenseStreams = () => {
+    const freqSel = $("#exFreq");
+    if (!freqSel) return;
+    freqSel.addEventListener("change", showExpenseFreqBlocks);
+    showExpenseFreqBlocks();
+
+    $("#expenseStreamForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = $("#exName").value.trim();
+      const category = $("#exCategory").value.trim();
+      const amount = Number($("#exAmount").value || 0);
+      const frequency = $("#exFreq").value;
+      const startDate = $("#exStart").value;
+      const endDate = $("#exEnd").value;
+      if (!name || isNaN(amount) || !startDate || !endDate) return;
+
+      const stream = {
+        id: uid(),
+        name,
+        category,
+        amount: Math.abs(amount),
+        frequency,
+        startDate,
+        endDate,
+        skipWeekends: false,
+        dayOfWeek: 1,
+        dayOfMonth: 1,
+        onDate: null,
+      };
+
+      if (frequency === "daily") {
+        stream.skipWeekends = $("#exSkipWeekends").checked;
+      }
+      if (frequency === "weekly") {
+        stream.dayOfWeek = Number($("#exDOW").value);
+      }
+      if (frequency === "monthly") {
+        stream.dayOfMonth = clamp(Number($("#exDOM").value || 1), 1, 31);
+      }
+
+      STATE.expenseStreams.push(stream);
+      save(STATE);
+      $("#expenseStreamForm").reset();
+      $("#exFreq").value = "monthly";
+      showExpenseFreqBlocks();
+      recalcAndRender();
+    });
+
+    $("#expenseStreamsTable").addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-act='delExpenseStream']");
+      if (!btn) return;
+      const id = btn.getAttribute("data-id");
+      STATE.expenseStreams = STATE.expenseStreams.filter((s) => s.id !== id);
+      save(STATE);
+      recalcAndRender();
+    });
+  };
+
   // Chart + upcoming table + KPIs
   let balanceChart;
 
@@ -495,6 +606,7 @@
     renderAdjustments();
     renderOneOffs();
     renderStreams();
+    renderExpenseStreams();
   };
 
   // ---------- Import / Export ----------
@@ -537,6 +649,7 @@
     bindAdjustments();
     bindOneOffs();
     bindStreams();
+    bindExpenseStreams();
 
     // Ensure defaults if missing
     if (!STATE.settings.endDate) STATE.settings.endDate = defaultEnd;
