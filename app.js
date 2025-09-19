@@ -37,17 +37,65 @@
     incomeStreams: [],
   });
 
+  const normalizeState = (raw, { strict = false } = {}) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error("Invalid state payload");
+    }
+
+    const base = defaultState();
+    const state = { ...base, ...raw };
+
+    const rawSettings = raw.settings;
+    if (rawSettings && typeof rawSettings === "object" && !Array.isArray(rawSettings)) {
+      state.settings = { ...base.settings, ...rawSettings };
+    } else {
+      if (strict) throw new Error("Invalid settings data");
+      state.settings = { ...base.settings };
+    }
+
+    const ensureArray = (key) => {
+      const value = raw[key] ?? state[key];
+      if (value === undefined) {
+        state[key] = [];
+        return;
+      }
+      if (!Array.isArray(value)) {
+        if (strict) throw new Error(`Invalid ${key}; expected an array`);
+        state[key] = [];
+        return;
+      }
+      state[key] = value;
+    };
+
+    ensureArray("adjustments");
+    ensureArray("oneOffs");
+    ensureArray("incomeStreams");
+
+    if (typeof state.settings.startDate !== "string") {
+      if (strict) throw new Error("Invalid settings.startDate");
+      state.settings.startDate = base.settings.startDate;
+    }
+    if (typeof state.settings.endDate !== "string") {
+      if (strict) throw new Error("Invalid settings.endDate");
+      state.settings.endDate = base.settings.endDate;
+    }
+    const sb = Number(state.settings.startingBalance);
+    if (Number.isFinite(sb)) {
+      state.settings.startingBalance = sb;
+    } else {
+      if (strict) throw new Error("Invalid settings.startingBalance");
+      state.settings.startingBalance = base.settings.startingBalance;
+    }
+
+    return state;
+  };
+
   const load = () => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return defaultState();
       const data = JSON.parse(raw);
-      // Gentle migration / defaults
-      if (!data.settings) data.settings = defaultState().settings;
-      if (!Array.isArray(data.adjustments)) data.adjustments = [];
-      if (!Array.isArray(data.oneOffs)) data.oneOffs = [];
-      if (!Array.isArray(data.incomeStreams)) data.incomeStreams = [];
-      return data;
+      return normalizeState(data);
     } catch {
       return defaultState();
     }
@@ -461,13 +509,14 @@
       e.preventDefault();
       try {
         const parsed = JSON.parse($("#importText").value);
-        if (!parsed || typeof parsed !== "object") throw new Error("Invalid JSON");
-        STATE = parsed;
+        const nextState = normalizeState(parsed, { strict: true });
+        STATE = nextState;
         save(STATE);
         dlg.close();
         recalcAndRender();
       } catch (err) {
-        alert("Import failed: " + err.message);
+        const message = err && err.message ? err.message : String(err);
+        alert("Import failed: " + message);
       }
     });
     dlg.addEventListener("close", () => ($("#importText").value = ""));
