@@ -20,9 +20,16 @@ body {
   background-image: linear-gradient(180deg, #F5F7FB 0%, #E8EEFA 100%);
 }
 
+.app-shell {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 5vw, 48px);
+  min-height: 100%;
+}
+
 .app-header {
   display:flex; align-items:center; justify-content:space-between;
-  padding: 18px 20px; border-bottom: 1px solid var(--border);
+  padding: 18px 0; border-bottom: 1px solid var(--border);
   position: sticky; top: 0; backdrop-filter: blur(6px);
   background: rgba(255,255,255,0.85);
 }
@@ -42,7 +49,7 @@ body {
 .link { background: none; border: none; color: var(--accent); text-decoration: underline; cursor: pointer; }
 
 .tabs {
-  display:flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--border);
+  display:flex; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border);
 }
 .tab {
   background: var(--chip); color: var(--text); border: 1px solid var(--border);
@@ -58,7 +65,7 @@ body {
   box-shadow: 0 0 0 2px rgba(95, 123, 255, 0.2);
 }
 
-main { padding: 20px; display: grid; gap: 16px; }
+main { padding: 20px 0; display: grid; gap: 16px; }
 
 .card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 16px; box-shadow: 0 20px 40px rgba(17, 25, 40, 0.08);
@@ -97,6 +104,12 @@ main { padding: 20px; display: grid; gap: 16px; }
 .tab-panel { display:none; }
 .tab-panel.active { display:block; }
 
-.app-footer { text-align:center; color: var(--muted); padding: 30px 10px; }
+.app-footer { text-align:center; color: var(--muted); padding: 30px 0; }
+
+@media (max-width: 600px) {
+  .app-shell {
+    padding: 0 clamp(20px, 8vw, 36px);
+  }
+}
 
 canvas { width: 100%; }
