@@ -118,45 +118,117 @@
 
     <!-- CASH MOVEMENTS -->
     <section id="movements" class="tab-panel">
-      <div class="card">
-        <h2>One-Off Transactions</h2>
-        <form id="oneOffForm" class="form grid-4">
-          <div class="field">
-            <label for="ooDate">Date</label>
-            <input id="ooDate" type="date" required />
-          </div>
-          <div class="field">
-            <label for="ooType">Type</label>
-            <select id="ooType">
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="ooName">Description</label>
-            <input id="ooName" type="text" placeholder="Rent, AR payment, etc." required />
-          </div>
-          <div class="field">
-            <label for="ooCategory">Category</label>
-            <input id="ooCategory" type="text" placeholder="Ops, AR, etc." />
-          </div>
-          <div class="field">
-            <label for="ooAmount">Amount</label>
-            <input id="ooAmount" type="number" step="0.01" required />
-          </div>
-          <div class="actions">
-            <button class="btn" type="submit">Add</button>
-          </div>
-        </form>
+      <div class="card grid-2">
+        <div>
+          <h2>One-Off Transactions</h2>
+          <form id="oneOffForm" class="form grid-4">
+            <div class="field">
+              <label for="ooDate">Date</label>
+              <input id="ooDate" type="date" required />
+            </div>
+            <div class="field">
+              <label for="ooType">Type</label>
+              <select id="ooType">
+                <option value="expense">Expense</option>
+                <option value="income">Income</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="ooName">Description</label>
+              <input id="ooName" type="text" placeholder="Rent, AR payment, etc." required />
+            </div>
+            <div class="field">
+              <label for="ooCategory">Category</label>
+              <input id="ooCategory" type="text" placeholder="Ops, AR, etc." />
+            </div>
+            <div class="field">
+              <label for="ooAmount">Amount</label>
+              <input id="ooAmount" type="number" step="0.01" required />
+            </div>
+            <div class="actions">
+              <button class="btn" type="submit">Add</button>
+            </div>
+          </form>
 
-        <table class="table" id="oneOffTable">
-          <thead>
-            <tr>
-              <th>Date</th><th>Type</th><th>Description</th><th>Category</th><th class="num">Amount</th><th></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+          <table class="table" id="oneOffTable">
+            <thead>
+              <tr>
+                <th>Date</th><th>Type</th><th>Description</th><th>Category</th><th class="num">Amount</th><th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div>
+          <h2>Recurring Expense Streams</h2>
+          <form id="expenseStreamForm" class="form grid-4">
+            <div class="field">
+              <label for="exName">Name</label>
+              <input id="exName" type="text" placeholder="Rent, utilities, etc." required />
+            </div>
+            <div class="field">
+              <label for="exCategory">Category</label>
+              <input id="exCategory" type="text" placeholder="Facilities, Ops, etc." />
+            </div>
+            <div class="field">
+              <label for="exAmount">Amount</label>
+              <input id="exAmount" type="number" step="0.01" required />
+            </div>
+            <div class="field">
+              <label for="exFreq">Frequency</label>
+              <select id="exFreq">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly" selected>Monthly</option>
+              </select>
+            </div>
+
+            <div class="field exp-freq-only exp-freq-daily">
+              <label><input id="exSkipWeekends" type="checkbox" /> Skip weekends</label>
+            </div>
+
+            <div class="field exp-freq-only exp-freq-weekly">
+              <label for="exDOW">Day of Week</label>
+              <select id="exDOW">
+                <option value="0">Sun</option>
+                <option value="1">Mon</option>
+                <option value="2">Tue</option>
+                <option value="3">Wed</option>
+                <option value="4">Thu</option>
+                <option value="5">Fri</option>
+                <option value="6">Sat</option>
+              </select>
+            </div>
+
+            <div class="field exp-freq-only exp-freq-monthly">
+              <label for="exDOM">Day of Month</label>
+              <input id="exDOM" type="number" min="1" max="31" value="1" />
+            </div>
+
+            <div class="field">
+              <label for="exStart">Start Date</label>
+              <input id="exStart" type="date" required />
+            </div>
+            <div class="field">
+              <label for="exEnd">End Date</label>
+              <input id="exEnd" type="date" required />
+            </div>
+
+            <div class="actions">
+              <button class="btn" type="submit">Add Expense Stream</button>
+            </div>
+          </form>
+
+          <table class="table" id="expenseStreamsTable">
+            <thead>
+              <tr>
+                <th>Name</th><th>Category</th><th>Frequency</th><th>Schedule</th><th class="num">Amount</th><th>Dates</th><th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -249,7 +321,7 @@
       <form method="dialog" class="form">
         <h3>Import JSON</h3>
         <p>Paste data exported from this app (it will replace your current plan).</p>
-        <textarea id="importText" rows="10" spellcheck="false" placeholder='{"settings":{...},"oneOffs":[...],"incomeStreams":[...]}'></textarea>
+        <textarea id="importText" rows="10" spellcheck="false" placeholder='{"settings":{...},"oneOffs":[...],"incomeStreams":[...],"expenseStreams":[...]}'></textarea>
         <div class="actions">
           <button class="btn btn-outline" value="cancel">Cancel</button>
           <button id="confirmImportBtn" class="btn" value="default">Import</button>
