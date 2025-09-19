@@ -35,7 +35,6 @@
     adjustments: [],
     oneOffs: [],
     incomeStreams: [],
-    expenseStreams: [],
   });
 
   const normalizeState = (raw, { strict = false } = {}) => {
@@ -71,7 +70,101 @@
     ensureArray("adjustments");
     ensureArray("oneOffs");
     ensureArray("incomeStreams");
-    ensureArray("expenseStreams");
+
+    const sanitizeOneOff = (entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        if (strict) throw new Error("Invalid one-off record");
+        return null;
+      }
+
+      const amount = Number(entry.amount || 0);
+      if (!Number.isFinite(amount)) {
+        if (strict) throw new Error("Invalid one-off amount");
+        return null;
+      }
+
+      const type = entry.type === "income" ? "income" : "expense";
+      const id = typeof entry.id === "string" ? entry.id : uid();
+      const result = {
+        id,
+        type,
+        name: typeof entry.name === "string" ? entry.name : "",
+        category: typeof entry.category === "string" ? entry.category : "",
+        amount: Math.abs(amount),
+        recurring: Boolean(entry.recurring),
+      };
+
+      if (entry.note !== undefined) result.note = entry.note;
+
+      if (result.recurring) {
+        const frequency = typeof entry.frequency === "string" ? entry.frequency : null;
+        const startDate = typeof entry.startDate === "string" ? entry.startDate : null;
+        const endDate = typeof entry.endDate === "string" ? entry.endDate : null;
+        if (!frequency || !startDate || !endDate) {
+          if (strict) throw new Error("Invalid recurring one-off metadata");
+          return null;
+        }
+        result.frequency = frequency;
+        result.startDate = startDate;
+        result.endDate = endDate;
+        result.skipWeekends = Boolean(entry.skipWeekends);
+        if (entry.dayOfWeek !== undefined) {
+          result.dayOfWeek = clamp(Number(entry.dayOfWeek || 0), 0, 6);
+        }
+        if (entry.dayOfMonth !== undefined) {
+          result.dayOfMonth = clamp(Number(entry.dayOfMonth || 1), 1, 31);
+        }
+        if (typeof entry.onDate === "string") result.onDate = entry.onDate;
+        if (typeof entry.date === "string") result.date = entry.date;
+        else result.date = result.startDate;
+      } else {
+        const date = typeof entry.date === "string" ? entry.date : null;
+        if (!date) {
+          if (strict) throw new Error("Invalid one-off date");
+          return null;
+        }
+        result.date = date;
+      }
+
+      return result;
+    };
+
+    const sanitizeList = (list) =>
+      list
+        .map((item) => sanitizeOneOff(item))
+        .filter((item) => item !== null);
+
+    state.oneOffs = sanitizeList(state.oneOffs);
+
+    const legacyExpenses = Array.isArray(raw.expenseStreams) ? raw.expenseStreams : [];
+    if (legacyExpenses.length) {
+      const fallbackStart = state.settings.startDate;
+      const fallbackEnd = state.settings.endDate;
+      const mapped = legacyExpenses
+        .map((stream) => {
+          if (!stream || typeof stream !== "object" || Array.isArray(stream)) {
+            if (strict) throw new Error("Invalid legacy expense stream");
+            return null;
+          }
+          const candidate = {
+            ...stream,
+            id: typeof stream.id === "string" ? stream.id : uid(),
+            type: "expense",
+            recurring: true,
+            date: typeof stream.startDate === "string" ? stream.startDate : stream.onDate,
+            startDate:
+              typeof stream.startDate === "string" ? stream.startDate : fallbackStart,
+            endDate: typeof stream.endDate === "string" ? stream.endDate : fallbackEnd,
+          };
+          return sanitizeOneOff(candidate);
+        })
+        .filter((item) => item !== null);
+      if (mapped.length) {
+        state.oneOffs = [...state.oneOffs, ...mapped];
+      }
+    }
+
+    delete state.expenseStreams;
 
     if (typeof state.settings.startDate !== "string") {
       if (strict) throw new Error("Invalid settings.startDate");
@@ -166,12 +259,20 @@
   };
 
   const computeProjection = (state) => {
-    const { settings, oneOffs, incomeStreams, expenseStreams, adjustments } = state;
+    const { settings, oneOffs, incomeStreams, adjustments } = state;
     const cal = generateCalendar(settings.startDate, settings.endDate);
 
     // Accumulate one-offs by exact date
     const byDate = new Map(cal.map((row) => [row.date, row]));
+    const singles = [];
+    const recurring = [];
     for (const tx of oneOffs) {
+      if (!tx || typeof tx !== "object") continue;
+      if (tx.recurring) recurring.push(tx);
+      else singles.push(tx);
+    }
+
+    for (const tx of singles) {
       const row = byDate.get(tx.date);
       if (!row) continue;
       const amt = Number(tx.amount || 0);
@@ -191,14 +292,18 @@
       }
     }
 
-    // Apply recurring expense streams
-    for (const st of expenseStreams || []) {
-      const amount = Number(st.amount || 0);
+    // Apply recurring one-offs
+    for (const tx of recurring) {
+      const amount = Number(tx.amount || 0);
       if (!amount) continue;
+      if (typeof tx.startDate !== "string" || typeof tx.endDate !== "string" || typeof tx.frequency !== "string") {
+        continue;
+      }
       for (const row of cal) {
         const d = fromYMD(row.date);
-        if (shouldApplyStreamOn(d, st)) {
-          row.expenses += amount;
+        if (shouldApplyStreamOn(d, tx)) {
+          if (tx.type === "expense") row.expenses += Math.abs(amount);
+          else row.income += Math.abs(amount);
         }
       }
     }
@@ -309,15 +414,60 @@
   const renderOneOffs = () => {
     const tbody = $("#oneOffTable tbody");
     tbody.innerHTML = "";
-    const rows = [...STATE.oneOffs].sort((a, b) => a.date.localeCompare(b.date));
+    const singles = [];
+    const recurring = [];
+    for (const tx of STATE.oneOffs) {
+      if (!tx || typeof tx !== "object") continue;
+      if (tx.recurring) recurring.push(tx);
+      else singles.push(tx);
+    }
+
+    singles.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    recurring.sort((a, b) => {
+      const aStart = (a.startDate || "").localeCompare(b.startDate || "");
+      if (aStart !== 0) return aStart;
+      return (a.name || "").localeCompare(b.name || "");
+    });
+
+    const rows = [...singles, ...recurring];
     for (const tx of rows) {
       const amt = Number(tx.amount || 0);
+      const isRecurring = Boolean(tx.recurring);
+      const dateLabel = isRecurring
+        ? [tx.startDate, tx.endDate].filter(Boolean).join(" → ")
+        : tx.date;
+      const freqLabel = (() => {
+        if (!isRecurring) return "";
+        switch (tx.frequency) {
+          case "once":
+            return tx.onDate ? `Once on ${tx.onDate}` : "Once";
+          case "daily":
+            return `Daily${tx.skipWeekends ? " (M–F)" : ""}`;
+          case "weekly":
+            return tx.dayOfWeek !== undefined
+              ? `Weekly on ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][clamp(Number(tx.dayOfWeek || 0), 0, 6)]}`
+              : "Weekly";
+          case "biweekly":
+            return tx.dayOfWeek !== undefined
+              ? `Every 2 weeks on ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][clamp(Number(tx.dayOfWeek || 0), 0, 6)]}`
+              : "Every 2 weeks";
+          case "monthly":
+            return tx.dayOfMonth ? `Monthly on day ${tx.dayOfMonth}` : "Monthly";
+          default:
+            return "";
+        }
+      })();
+      const categoryLabel = isRecurring
+        ? [tx.category || "", freqLabel].filter(Boolean).join(" • ")
+        : tx.category || "";
+      const typeLabel = isRecurring ? `${tx.type} (recurring)` : tx.type;
+
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${tx.date}</td>
-        <td>${tx.type}</td>
+        <td>${dateLabel || ""}</td>
+        <td>${typeLabel}</td>
         <td>${tx.name || ""}</td>
-        <td>${tx.category || ""}</td>
+        <td>${categoryLabel}</td>
         <td class="num">${fmtMoney(amt)}</td>
         <td><button class="link" data-id="${tx.id}" data-act="delOneOff">Delete</button></td>
       `;
@@ -334,7 +484,7 @@
       const category = $("#ooCategory").value.trim();
       const amount = Number($("#ooAmount").value || 0);
       if (!date || !name || isNaN(amount)) return;
-      STATE.oneOffs.push({ id: uid(), date, type, name, category, amount: Math.abs(amount) });
+      STATE.oneOffs.push({ id: uid(), date, type, name, category, amount: Math.abs(amount), recurring: false });
       save(STATE);
       $("#oneOffForm").reset();
       recalcAndRender();
@@ -446,103 +596,6 @@
     });
   };
 
-  const showExpenseFreqBlocks = () => {
-    const val = $("#exFreq").value;
-    $$(".exp-freq-only").forEach((el) => el.classList.add("hidden"));
-    $$(".exp-freq-" + val).forEach((el) => el.classList.remove("hidden"));
-  };
-
-  const renderExpenseStreams = () => {
-    const tbody = $("#expenseStreamsTable tbody");
-    if (!tbody) return;
-    tbody.innerHTML = "";
-    const rows = [...(STATE.expenseStreams || [])].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-    for (const st of rows) {
-      const schedule = (() => {
-        switch (st.frequency) {
-          case "daily":
-            return `Daily${st.skipWeekends ? " (M–F)" : ""}`;
-          case "weekly":
-            return `Weekly on ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][st.dayOfWeek]}`;
-          case "monthly":
-            return `Monthly on day ${st.dayOfMonth}`;
-          default:
-            return "";
-        }
-      })();
-
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${st.name}</td>
-        <td>${st.category || ""}</td>
-        <td>${st.frequency}</td>
-        <td>${schedule}</td>
-        <td class="num">${fmtMoney(Number(st.amount || 0))}</td>
-        <td>${st.startDate} → ${st.endDate}</td>
-        <td><button class="link" data-id="${st.id}" data-act="delExpenseStream">Delete</button></td>
-      `;
-      tbody.appendChild(tr);
-    }
-  };
-
-  const bindExpenseStreams = () => {
-    const freqSel = $("#exFreq");
-    if (!freqSel) return;
-    freqSel.addEventListener("change", showExpenseFreqBlocks);
-    showExpenseFreqBlocks();
-
-    $("#expenseStreamForm").addEventListener("submit", (e) => {
-      e.preventDefault();
-      const name = $("#exName").value.trim();
-      const category = $("#exCategory").value.trim();
-      const amount = Number($("#exAmount").value || 0);
-      const frequency = $("#exFreq").value;
-      const startDate = $("#exStart").value;
-      const endDate = $("#exEnd").value;
-      if (!name || isNaN(amount) || !startDate || !endDate) return;
-
-      const stream = {
-        id: uid(),
-        name,
-        category,
-        amount: Math.abs(amount),
-        frequency,
-        startDate,
-        endDate,
-        skipWeekends: false,
-        dayOfWeek: 1,
-        dayOfMonth: 1,
-        onDate: null,
-      };
-
-      if (frequency === "daily") {
-        stream.skipWeekends = $("#exSkipWeekends").checked;
-      }
-      if (frequency === "weekly") {
-        stream.dayOfWeek = Number($("#exDOW").value);
-      }
-      if (frequency === "monthly") {
-        stream.dayOfMonth = clamp(Number($("#exDOM").value || 1), 1, 31);
-      }
-
-      STATE.expenseStreams.push(stream);
-      save(STATE);
-      $("#expenseStreamForm").reset();
-      $("#exFreq").value = "monthly";
-      showExpenseFreqBlocks();
-      recalcAndRender();
-    });
-
-    $("#expenseStreamsTable").addEventListener("click", (e) => {
-      const btn = e.target.closest("button[data-act='delExpenseStream']");
-      if (!btn) return;
-      const id = btn.getAttribute("data-id");
-      STATE.expenseStreams = STATE.expenseStreams.filter((s) => s.id !== id);
-      save(STATE);
-      recalcAndRender();
-    });
-  };
-
   // Chart + upcoming table + KPIs
   let balanceChart;
 
@@ -606,7 +659,6 @@
     renderAdjustments();
     renderOneOffs();
     renderStreams();
-    renderExpenseStreams();
   };
 
   // ---------- Import / Export ----------
@@ -649,7 +701,6 @@
     bindAdjustments();
     bindOneOffs();
     bindStreams();
-    bindExpenseStreams();
 
     // Ensure defaults if missing
     if (!STATE.settings.endDate) STATE.settings.endDate = defaultEnd;
