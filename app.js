@@ -436,45 +436,61 @@ for (const tx of oneOffs) {
 
   // One-offs
   const describeTransactionSchedule = (tx) => {
-    if (!tx || !tx.repeats || !tx.frequency) return "—";
+    if (!tx || typeof tx !== "object") return "—";
 
-    const range = tx.startDate && tx.endDate ? ` (${tx.startDate} → ${tx.endDate})` : "";
-    switch (tx.frequency) {
+    const repeats = Boolean(tx.repeats ?? tx.recurring);
+    if (!repeats) return "—";
+
+    const frequency = tx.frequency;
+    if (!frequency) return "Repeats";
+
+    const start = tx.startDate || tx.date || null;
+    const end = tx.endDate || tx.date || null;
+    const range = start && end ? ` (${start} → ${end})` : "";
+
+    switch (frequency) {
       case "daily":
         return `Daily${tx.skipWeekends ? " (M–F)" : ""}${range}`;
       case "weekly":
         return `Weekly on ${getDOWLabel(tx.dayOfWeek)}${range}`;
       case "biweekly":
         return `Every 2 weeks on ${getDOWLabel(tx.dayOfWeek)}${range}`;
-      case "monthly":
-        return `Monthly on day ${clamp(Number(tx.dayOfMonth ?? 1), 1, 31)}${range}`;
+      case "monthly": {
+        const day = clamp(Number(tx.dayOfMonth ?? 1), 1, 31);
+        return `Monthly on day ${day}${range}`;
+      }
+      case "once": {
+        const when = tx.onDate || tx.date || start;
+        return when ? `On ${when}` : "Once";
+      }
       default:
         return `Repeats${range}`;
     }
   };
 
-const renderOneOffs = () => {
-  const tbody = $("#oneOffTable tbody");
-  tbody.innerHTML = "";
+  const renderOneOffs = () => {
+    const tbody = $("#oneOffTable tbody");
+    tbody.innerHTML = "";
 
-  const rows = [...(STATE.oneOffs || [])]
-    .filter((tx) => tx && typeof tx === "object")
-    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    const rows = [...(STATE.oneOffs || [])]
+      .filter((tx) => tx && typeof tx === "object")
+      .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
-  for (const tx of rows) {
-    const amt = Number(tx.amount || 0);
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${tx.date || ""}</td>
-      <td>${tx.type || ""}</td>
-      <td>${tx.name || ""}</td>
-      <td>${tx.category || ""}</td>
-      <td class="num">${fmtMoney(amt)}</td>
-      <td><button class="link" data-id="${tx.id}" data-act="delOneOff">Delete</button></td>
-    `;
-    tbody.appendChild(tr);
-  }
-};
+    for (const tx of rows) {
+      const amt = Number(tx.amount || 0);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${tx.date || ""}</td>
+        <td>${describeTransactionSchedule(tx)}</td>
+        <td>${tx.type || ""}</td>
+        <td>${tx.name || ""}</td>
+        <td>${tx.category || ""}</td>
+        <td class="num">${fmtMoney(amt)}</td>
+        <td><button class="link" data-id="${tx.id}" data-act="delOneOff">Delete</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  };
 
   const showTransactionFreqBlocks = () => {
     const form = $("#oneOffForm");
