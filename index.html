@@ -168,10 +168,10 @@
               <label><input id="ooSkipWeekends" type="checkbox" /> Skip weekends</label>
             </div>
             <div class="field tx-recurring-only tx-freq-only tx-freq-weekly tx-freq-biweekly hidden">
-              <label for="ooDOW">Day of Week</label>
-              <select id="ooDOW">
+              <label for="ooDOW">Day(s) of Week</label>
+              <select id="ooDOW" multiple size="7">
                 <option value="0">Sun</option>
-                <option value="1">Mon</option>
+                <option value="1" selected>Mon</option>
                 <option value="2">Tue</option>
                 <option value="3">Wed</option>
                 <option value="4">Thu</option>
@@ -241,10 +241,10 @@
 
           <!-- Weekly/Biweekly -->
           <div class="field freq-only freq-weekly freq-biweekly">
-            <label for="stDOW">Day of Week</label>
-            <select id="stDOW">
+            <label for="stDOW">Day(s) of Week</label>
+            <select id="stDOW" multiple size="7">
               <option value="0">Sun</option>
-              <option value="1">Mon</option>
+              <option value="1" selected>Mon</option>
               <option value="2">Tue</option>
               <option value="3">Wed</option>
               <option value="4">Thu</option>
