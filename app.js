@@ -57,6 +57,52 @@
     return ordinal(normalizeNth(nth));
   };
 
+  const toWeekdayArray = (value) => {
+    if (value === undefined || value === null) return [];
+
+    let raw;
+    if (Array.isArray(value)) raw = value;
+    else if (typeof value === "string" && value.includes(",")) raw = value.split(/[\s,]+/);
+    else raw = [value];
+
+    const seen = new Set();
+    const days = [];
+    for (const item of raw) {
+      if (item === undefined || item === null) continue;
+      const str = String(item).trim();
+      if (!str) continue;
+      const num = Number(str);
+      if (!Number.isFinite(num)) continue;
+      const normalized = clamp(Math.trunc(num), 0, 6);
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        days.push(normalized);
+      }
+    }
+
+    return days.sort((a, b) => a - b);
+  };
+
+  const firstWeekday = (value, fallback = 0) => {
+    const days = toWeekdayArray(value);
+    if (days.length) return days[0];
+    const num = Number(value);
+    if (Number.isFinite(num)) return clamp(Math.trunc(num), 0, 6);
+    return clamp(Number(fallback) || 0, 0, 6);
+  };
+
+  const formatWeekdayList = (value) => {
+    const days = toWeekdayArray(value);
+    if (!days.length) return "";
+    return days.map((dow) => getDOWLabel(dow)).join(", ");
+  };
+
+  const readWeekdaySelections = (selectEl) => {
+    if (!selectEl) return [];
+    const values = Array.from(selectEl.selectedOptions || []).map((opt) => opt.value);
+    return toWeekdayArray(values);
+  };
+
   const todayYMD = (() => {
     const d = new Date();
     return toYMD(d);
@@ -148,8 +194,9 @@
         result.startDate = startDate;
         result.endDate = endDate;
         result.skipWeekends = Boolean(entry.skipWeekends);
+
         if (entry.dayOfWeek !== undefined) {
-          result.dayOfWeek = clamp(Number(entry.dayOfWeek || 0), 0, 6);
+          result.dayOfWeek = toWeekdayArray(entry.dayOfWeek);
         }
         if (entry.dayOfMonth !== undefined) {
           result.dayOfMonth = clamp(Number(entry.dayOfMonth || 1), 1, 31);
@@ -166,7 +213,7 @@
                 : entry.dayOfWeek !== undefined
                 ? entry.dayOfWeek
                 : result.dayOfWeek ?? 0;
-            result.nthWeekday = clamp(Number(nthWeekdaySource || 0), 0, 6);
+            result.nthWeekday = firstWeekday(nthWeekdaySource, 0);
           } else {
             result.monthlyMode = "day";
             const domSource =
@@ -175,6 +222,9 @@
           }
         } else {
           result.monthlyMode = "day";
+        }
+        if (frequency === "weekly" || frequency === "biweekly") {
+          result.dayOfWeek = toWeekdayArray(result.dayOfWeek);
         }
         if (result.monthlyMode !== "nth") {
           delete result.nthWeek;
@@ -206,12 +256,13 @@
       .filter((stream) => stream && typeof stream === "object" && !Array.isArray(stream))
       .map((stream) => {
         const next = { ...stream };
+        next.dayOfWeek = toWeekdayArray(next.dayOfWeek);
         next.dayOfMonth = clamp(Number(next.dayOfMonth ?? 1), 1, 31);
         const freq = typeof next.frequency === "string" ? next.frequency : null;
         if (freq === "monthly" && stream.monthlyMode === "nth") {
           next.monthlyMode = "nth";
           next.nthWeek = normalizeNth(stream.nthWeek);
-          next.nthWeekday = clamp(Number(stream.nthWeekday ?? stream.dayOfWeek ?? 0), 0, 6);
+          next.nthWeekday = firstWeekday(stream.nthWeekday ?? next.dayOfWeek ?? 0, 0);
         } else if (freq === "monthly") {
           next.monthlyMode = "day";
           delete next.nthWeek;
@@ -290,6 +341,32 @@
 
   let STATE = load();
 
+  STATE.incomeStreams = (STATE.incomeStreams || []).map((stream) => {
+    if (!stream || typeof stream !== "object") return stream;
+    const next = { ...stream };
+    if (next.dayOfWeek !== undefined) {
+      next.dayOfWeek = toWeekdayArray(next.dayOfWeek);
+    }
+    if (next.monthlyMode === "nth") {
+      next.nthWeek = normalizeNth(next.nthWeek);
+      next.nthWeekday = firstWeekday(next.nthWeekday ?? next.dayOfWeek ?? 0, 0);
+    }
+    return next;
+  });
+
+  STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
+    if (!tx || typeof tx !== "object") return tx;
+    const next = { ...tx };
+    if (next.dayOfWeek !== undefined) {
+      next.dayOfWeek = toWeekdayArray(next.dayOfWeek);
+    }
+    if (next.monthlyMode === "nth") {
+      next.nthWeek = normalizeNth(next.nthWeek);
+      next.nthWeekday = firstWeekday(next.nthWeekday ?? next.dayOfWeek ?? 0, 0);
+    }
+    return next;
+  });
+
   // ---------- Recurrence engine ----------
   const isBetween = (d, start, end) => d >= start && d <= end;
 
@@ -302,9 +379,7 @@
 
   const occursNthWeekday = (date, nth, weekday) => {
     const nthValue = normalizeNth(nth);
-    const parsedWeekday = Number(weekday);
-    const baseDow = Number.isNaN(parsedWeekday) ? 0 : parsedWeekday;
-    const targetDow = ((baseDow % 7) + 7) % 7;
+    const targetDow = firstWeekday(weekday, 0);
     const firstOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
     const firstDow = firstOfMonth.getDay();
     const firstOccurrenceDay = 1 + ((targetDow - firstDow + 7) % 7);
@@ -325,16 +400,24 @@
     return date.getDate() === occurrences[idx];
   };
 
-  const occursWeeklyOn = (date, dow) => date.getDay() === Number(dow);
+  const occursWeeklyOn = (date, weekdays) => {
+    const days = toWeekdayArray(weekdays);
+    if (!days.length) return false;
+    return days.includes(date.getDay());
+  };
 
-  const occursBiweeklyOn = (date, dow, startDate) => {
-    // Anchor at the first occurrence on/after startDate with the given DOW
-    const anchor = new Date(startDate.getTime());
-    const deltaToDOW = (Number(dow) - anchor.getDay() + 7) % 7;
-    anchor.setDate(anchor.getDate() + deltaToDOW); // first scheduled day
-    if (date < anchor) return false;
-    const days = Math.floor((date - anchor) / (1000 * 60 * 60 * 24));
-    return days % 14 === 0;
+  const occursBiweeklyOn = (date, weekdays, startDate) => {
+    const days = toWeekdayArray(weekdays);
+    if (!days.length) return false;
+    return days.some((dow) => {
+      if (date.getDay() !== dow) return false;
+      const anchor = new Date(startDate.getTime());
+      const deltaToDOW = (dow - anchor.getDay() + 7) % 7;
+      anchor.setDate(anchor.getDate() + deltaToDOW); // first scheduled day for this DOW
+      if (date < anchor) return false;
+      const diffDays = Math.floor((date - anchor) / (1000 * 60 * 60 * 24));
+      return diffDays % 14 === 0;
+    });
   };
 
   const shouldApplyStreamOn = (date, stream) => {
@@ -378,11 +461,11 @@
       endDate: tx.endDate,
       onDate: tx.onDate || null,
       skipWeekends: Boolean(tx.skipWeekends),
-      dayOfWeek: Number(tx.dayOfWeek ?? 0),
+      dayOfWeek: toWeekdayArray(tx.dayOfWeek),
       dayOfMonth: Number(tx.dayOfMonth ?? 1),
       monthlyMode: tx.monthlyMode === "nth" ? "nth" : "day",
       nthWeek: tx.nthWeek,
-      nthWeekday: Number(tx.nthWeekday ?? tx.dayOfWeek ?? 0),
+      nthWeekday: firstWeekday(tx.nthWeekday ?? tx.dayOfWeek ?? 0, 0),
     };
 
     return shouldApplyStreamOn(date, shim);
@@ -553,7 +636,8 @@
     if (item.monthlyMode === "nth") {
       const nth = normalizeNth(item.nthWeek);
       const nthLabel = describeNth(nth);
-      return `Monthly on the ${nthLabel} ${getDOWLabel(item.nthWeekday)}`;
+      const weekday = firstWeekday(item.nthWeekday ?? item.dayOfWeek ?? 0, 0);
+      return `Monthly on the ${nthLabel} ${getDOWLabel(weekday)}`;
     }
     const day = clamp(Number(item.dayOfMonth ?? 1), 1, 31);
     return `Monthly on day ${day}`;
@@ -575,10 +659,14 @@
     switch (frequency) {
       case "daily":
         return `Daily${tx.skipWeekends ? " (M–F)" : ""}${range}`;
-      case "weekly":
-        return `Weekly on ${getDOWLabel(tx.dayOfWeek)}${range}`;
-      case "biweekly":
-        return `Every 2 weeks on ${getDOWLabel(tx.dayOfWeek)}${range}`;
+      case "weekly": {
+        const list = formatWeekdayList(tx.dayOfWeek);
+        return list ? `Weekly on ${list}${range}` : `Weekly (no days selected)${range}`;
+      }
+      case "biweekly": {
+        const list = formatWeekdayList(tx.dayOfWeek);
+        return list ? `Every 2 weeks on ${list}${range}` : `Every 2 weeks (no days selected)${range}`;
+      }
       case "monthly": {
         return `${describeMonthlySchedule(tx)}${range}`;
       }
@@ -715,7 +803,9 @@
         entry.skipWeekends = $("#ooSkipWeekends").checked;
 
         if (frequency === "weekly" || frequency === "biweekly") {
-          entry.dayOfWeek = clamp(Number($("#ooDOW").value || 0), 0, 6);
+          const weekdays = readWeekdaySelections($("#ooDOW"));
+          if (!weekdays.length) return;
+          entry.dayOfWeek = weekdays;
         }
         if (frequency === "monthly") {
           const modeSel = $("#ooMonthlyMode");
@@ -767,8 +857,14 @@
         switch (st.frequency) {
           case "once": return `On ${st.onDate}`;
           case "daily": return `Daily${st.skipWeekends ? " (M–F)" : ""}`;
-          case "weekly": return `Weekly on ${getDOWLabel(st.dayOfWeek)}`;
-          case "biweekly": return `Every 2 weeks on ${getDOWLabel(st.dayOfWeek)}`;
+          case "weekly": {
+            const list = formatWeekdayList(st.dayOfWeek);
+            return list ? `Weekly on ${list}` : "Weekly (no days selected)";
+          }
+          case "biweekly": {
+            const list = formatWeekdayList(st.dayOfWeek);
+            return list ? `Every 2 weeks on ${list}` : "Every 2 weeks (no days selected)";
+          }
           case "monthly": return describeMonthlySchedule(st);
           default: return "";
         }
@@ -805,6 +901,9 @@
       const endDate = $("#stEnd").value;
       if (!name || isNaN(amount) || !startDate || !endDate) return;
 
+      const dowSelect = $("#stDOW");
+      const weekdays = readWeekdaySelections(dowSelect);
+
       const stream = {
         id: uid(),
         name, category,
@@ -814,11 +913,11 @@
         endDate,
         onDate: null,
         skipWeekends: false,
-        dayOfWeek: 1,
+        dayOfWeek: weekdays,
         dayOfMonth: 1,
         monthlyMode: "day",
         nthWeek: "1",
-        nthWeekday: 0
+        nthWeekday: firstWeekday(weekdays, 0),
       };
 
       if (frequency === "once") {
@@ -829,7 +928,7 @@
         stream.skipWeekends = $("#stSkipWeekends").checked;
       }
       if (frequency === "weekly" || frequency === "biweekly") {
-        stream.dayOfWeek = Number($("#stDOW").value);
+        if (!weekdays.length) return;
       }
       if (frequency === "monthly") {
         const modeSel = $("#stMonthlyMode");
