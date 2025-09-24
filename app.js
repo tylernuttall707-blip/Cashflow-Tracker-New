@@ -290,19 +290,20 @@
   const computeProjection = (state) => {
     const { settings, oneOffs, incomeStreams, adjustments } = state;
     const cal = generateCalendar(settings.startDate, settings.endDate);
+    const recurring = oneOffs.filter((tx) => tx && typeof tx === "object" && tx.recurring);
+    const singles = oneOffs.filter((tx) => tx && typeof tx === "object" && !tx.recurring);
 
-// Accumulate one-offs by exact date
-const byDate = new Map(cal.map((row) => [row.date, row]));
+    // Accumulate one-offs by exact date
+    const byDate = new Map(cal.map((row) => [row.date, row]));
 
-for (const tx of oneOffs) {
-  if (!tx || typeof tx !== "object") continue;
-  const row = byDate.get(tx.date);
-  if (!row) continue;
-  const amt = Number(tx.amount || 0);
-  if (!amt) continue;
-  if (tx.type === "expense") row.expenses += Math.abs(amt);
-  else row.income += Math.abs(amt);
-}
+    for (const tx of singles) {
+      const row = byDate.get(tx.date);
+      if (!row) continue;
+      const amt = Number(tx.amount || 0);
+      if (!amt) continue;
+      if (tx.type === "expense") row.expenses += Math.abs(amt);
+      else row.income += Math.abs(amt);
+    }
 
     // Apply recurring income streams
     for (const st of incomeStreams) {
