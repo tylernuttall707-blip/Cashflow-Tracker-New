@@ -24,6 +24,44 @@
     return DOW_LABELS[idx] ?? DOW_LABELS[0];
   };
 
+  const toWeekdayArray = (value) => {
+    if (value === undefined || value === null) return [];
+
+    let raw;
+    if (Array.isArray(value)) raw = value;
+    else if (typeof value === "string" && value.includes(",")) raw = value.split(/[\s,]+/);
+    else raw = [value];
+
+    const seen = new Set();
+    const days = [];
+    for (const item of raw) {
+      if (item === undefined || item === null) continue;
+      const str = String(item).trim();
+      if (!str) continue;
+      const num = Number(str);
+      if (!Number.isFinite(num)) continue;
+      const normalized = clamp(Math.trunc(num), 0, 6);
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        days.push(normalized);
+      }
+    }
+
+    return days.sort((a, b) => a - b);
+  };
+
+  const formatWeekdayList = (value) => {
+    const days = toWeekdayArray(value);
+    if (!days.length) return "";
+    return days.map((dow) => getDOWLabel(dow)).join(", ");
+  };
+
+  const readWeekdaySelections = (selectEl) => {
+    if (!selectEl) return [];
+    const values = Array.from(selectEl.selectedOptions || []).map((opt) => opt.value);
+    return toWeekdayArray(values);
+  };
+
   const todayYMD = (() => {
     const d = new Date();
     return toYMD(d);
@@ -116,7 +154,7 @@
         result.endDate = endDate;
         result.skipWeekends = Boolean(entry.skipWeekends);
         if (entry.dayOfWeek !== undefined) {
-          result.dayOfWeek = clamp(Number(entry.dayOfWeek || 0), 0, 6);
+          result.dayOfWeek = toWeekdayArray(entry.dayOfWeek);
         }
         if (entry.dayOfMonth !== undefined) {
           result.dayOfMonth = clamp(Number(entry.dayOfMonth || 1), 1, 31);
@@ -209,6 +247,22 @@
 
   let STATE = load();
 
+  STATE.incomeStreams = (STATE.incomeStreams || []).map((stream) => {
+    if (!stream || typeof stream !== "object") return stream;
+    if (stream.dayOfWeek !== undefined) {
+      return { ...stream, dayOfWeek: toWeekdayArray(stream.dayOfWeek) };
+    }
+    return stream;
+  });
+
+  STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
+    if (!tx || typeof tx !== "object") return tx;
+    if (tx.dayOfWeek !== undefined) {
+      return { ...tx, dayOfWeek: toWeekdayArray(tx.dayOfWeek) };
+    }
+    return tx;
+  });
+
   // ---------- Recurrence engine ----------
   const isBetween = (d, start, end) => d >= start && d <= end;
 
@@ -219,16 +273,24 @@
     return date.getDate() === target;
   };
 
-  const occursWeeklyOn = (date, dow) => date.getDay() === Number(dow);
+  const occursWeeklyOn = (date, weekdays) => {
+    const days = toWeekdayArray(weekdays);
+    if (!days.length) return false;
+    return days.includes(date.getDay());
+  };
 
-  const occursBiweeklyOn = (date, dow, startDate) => {
-    // Anchor at the first occurrence on/after startDate with the given DOW
-    const anchor = new Date(startDate.getTime());
-    const deltaToDOW = (Number(dow) - anchor.getDay() + 7) % 7;
-    anchor.setDate(anchor.getDate() + deltaToDOW); // first scheduled day
-    if (date < anchor) return false;
-    const days = Math.floor((date - anchor) / (1000 * 60 * 60 * 24));
-    return days % 14 === 0;
+  const occursBiweeklyOn = (date, weekdays, startDate) => {
+    const days = toWeekdayArray(weekdays);
+    if (!days.length) return false;
+    return days.some((dow) => {
+      if (date.getDay() !== dow) return false;
+      const anchor = new Date(startDate.getTime());
+      const deltaToDOW = (dow - anchor.getDay() + 7) % 7;
+      anchor.setDate(anchor.getDate() + deltaToDOW); // first scheduled day for this DOW
+      if (date < anchor) return false;
+      const diffDays = Math.floor((date - anchor) / (1000 * 60 * 60 * 24));
+      return diffDays % 14 === 0;
+    });
   };
 
   const shouldApplyStreamOn = (date, stream) => {
@@ -269,7 +331,7 @@
       endDate: tx.endDate,
       onDate: tx.onDate || null,
       skipWeekends: Boolean(tx.skipWeekends),
-      dayOfWeek: Number(tx.dayOfWeek ?? 0),
+      dayOfWeek: tx.dayOfWeek ?? [],
       dayOfMonth: Number(tx.dayOfMonth ?? 1),
     };
 
@@ -452,10 +514,14 @@
     switch (frequency) {
       case "daily":
         return `Daily${tx.skipWeekends ? " (M–F)" : ""}${range}`;
-      case "weekly":
-        return `Weekly on ${getDOWLabel(tx.dayOfWeek)}${range}`;
-      case "biweekly":
-        return `Every 2 weeks on ${getDOWLabel(tx.dayOfWeek)}${range}`;
+      case "weekly": {
+        const list = formatWeekdayList(tx.dayOfWeek);
+        return list ? `Weekly on ${list}${range}` : `Weekly (no days selected)${range}`;
+      }
+      case "biweekly": {
+        const list = formatWeekdayList(tx.dayOfWeek);
+        return list ? `Every 2 weeks on ${list}${range}` : `Every 2 weeks (no days selected)${range}`;
+      }
       case "monthly": {
         const day = clamp(Number(tx.dayOfMonth ?? 1), 1, 31);
         return `Monthly on day ${day}${range}`;
@@ -575,7 +641,9 @@
         entry.skipWeekends = $("#ooSkipWeekends").checked;
 
         if (frequency === "weekly" || frequency === "biweekly") {
-          entry.dayOfWeek = clamp(Number($("#ooDOW").value || 0), 0, 6);
+          const weekdays = readWeekdaySelections($("#ooDOW"));
+          if (!weekdays.length) return;
+          entry.dayOfWeek = weekdays;
         }
         if (frequency === "monthly") {
           entry.dayOfMonth = clamp(Number($("#ooDOM").value || 1), 1, 31);
@@ -616,8 +684,14 @@
         switch (st.frequency) {
           case "once": return `On ${st.onDate}`;
           case "daily": return `Daily${st.skipWeekends ? " (M–F)" : ""}`;
-          case "weekly": return `Weekly on ${getDOWLabel(st.dayOfWeek)}`;
-          case "biweekly": return `Every 2 weeks on ${getDOWLabel(st.dayOfWeek)}`;
+          case "weekly": {
+            const list = formatWeekdayList(st.dayOfWeek);
+            return list ? `Weekly on ${list}` : "Weekly (no days selected)";
+          }
+          case "biweekly": {
+            const list = formatWeekdayList(st.dayOfWeek);
+            return list ? `Every 2 weeks on ${list}` : "Every 2 weeks (no days selected)";
+          }
           case "monthly": return `Monthly on day ${st.dayOfMonth}`;
           default: return "";
         }
@@ -651,6 +725,9 @@
       const endDate = $("#stEnd").value;
       if (!name || isNaN(amount) || !startDate || !endDate) return;
 
+      const dowSelect = $("#stDOW");
+      const weekdays = readWeekdaySelections(dowSelect);
+
       const stream = {
         id: uid(),
         name, category,
@@ -660,7 +737,7 @@
         endDate,
         onDate: null,
         skipWeekends: false,
-        dayOfWeek: 1,
+        dayOfWeek: weekdays,
         dayOfMonth: 1
       };
 
@@ -672,7 +749,7 @@
         stream.skipWeekends = $("#stSkipWeekends").checked;
       }
       if (frequency === "weekly" || frequency === "biweekly") {
-        stream.dayOfWeek = Number($("#stDOW").value);
+        if (!weekdays.length) return;
       }
       if (frequency === "monthly") {
         stream.dayOfMonth = clamp(Number($("#stDOM").value || 1), 1, 31);
