@@ -525,28 +525,54 @@ const renderOneOffs = () => {
     });
     showTransactionFreqBlocks();
 
-form.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const date = $("#ooDate").value;
-  const type = $("#ooType").value;
-  const name = $("#ooName").value.trim();
-  const category = $("#ooCategory").value.trim();
-  const amount = Number($("#ooAmount").value || 0);
-  if (!date || !name || isNaN(amount)) return;
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
 
-  STATE.oneOffs.push({
-    id: uid(),
-    date,
-    type,
-    name,
-    category,
-    amount: Math.abs(amount)
-  });
+      const repeats = repeatsToggle.checked;
+      const date = $("#ooDate").value;
+      const type = $("#ooType").value;
+      const name = $("#ooName").value.trim();
+      const category = $("#ooCategory").value.trim();
+      const amount = Number($("#ooAmount").value || 0);
+      if (!date || !name || Number.isNaN(amount)) return;
 
-  save(STATE);
-  form.reset();
-  recalcAndRender();
-});
+      const entry = {
+        id: uid(),
+        date,
+        type,
+        name,
+        category,
+        amount: Math.abs(amount),
+      };
+
+      if (repeats) {
+        const frequency = $("#ooFreq").value;
+        const startDate = $("#ooStart").value;
+        const endDate = $("#ooEnd").value;
+        if (!frequency || !startDate || !endDate) return;
+
+        entry.repeats = true;
+        entry.recurring = true;
+        entry.frequency = frequency;
+        entry.startDate = startDate;
+        entry.endDate = endDate;
+        entry.skipWeekends = $("#ooSkipWeekends").checked;
+
+        if (frequency === "weekly" || frequency === "biweekly") {
+          entry.dayOfWeek = clamp(Number($("#ooDOW").value || 0), 0, 6);
+        }
+        if (frequency === "monthly") {
+          entry.dayOfMonth = clamp(Number($("#ooDOM").value || 1), 1, 31);
+        }
+      }
+
+      STATE.oneOffs.push(entry);
+
+      save(STATE);
+      form.reset();
+      showTransactionFreqBlocks();
+      recalcAndRender();
+    });
 
     $("#oneOffTable").addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-act='delOneOff']");
