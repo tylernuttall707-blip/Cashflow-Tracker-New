@@ -24,6 +24,39 @@
     return DOW_LABELS[idx] ?? DOW_LABELS[0];
   };
 
+  const normalizeNth = (value) => {
+    if (value === null || value === undefined) return "1";
+    if (typeof value === "string") {
+      const trimmed = value.trim().toLowerCase();
+      if (trimmed === "last") return "last";
+      const parsed = parseInt(trimmed, 10);
+      if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 5) return String(parsed);
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      const int = Math.trunc(value);
+      if (int >= 1 && int <= 5) return String(int);
+    }
+    return "1";
+  };
+
+  const ordinal = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return "";
+    const mod100 = num % 100;
+    if (mod100 >= 11 && mod100 <= 13) return `${num}th`;
+    switch (num % 10) {
+      case 1: return `${num}st`;
+      case 2: return `${num}nd`;
+      case 3: return `${num}rd`;
+      default: return `${num}th`;
+    }
+  };
+
+  const describeNth = (nth) => {
+    if (nth === "last") return "last";
+    return ordinal(normalizeNth(nth));
+  };
+
   const todayYMD = (() => {
     const d = new Date();
     return toYMD(d);
@@ -121,6 +154,32 @@
         if (entry.dayOfMonth !== undefined) {
           result.dayOfMonth = clamp(Number(entry.dayOfMonth || 1), 1, 31);
         }
+
+        if (frequency === "monthly") {
+          const monthlyMode = entry.monthlyMode === "nth" ? "nth" : "day";
+          if (monthlyMode === "nth") {
+            result.monthlyMode = "nth";
+            result.nthWeek = normalizeNth(entry.nthWeek);
+            const nthWeekdaySource =
+              entry.nthWeekday !== undefined
+                ? entry.nthWeekday
+                : entry.dayOfWeek !== undefined
+                ? entry.dayOfWeek
+                : result.dayOfWeek ?? 0;
+            result.nthWeekday = clamp(Number(nthWeekdaySource || 0), 0, 6);
+          } else {
+            result.monthlyMode = "day";
+            const domSource =
+              entry.dayOfMonth !== undefined ? entry.dayOfMonth : result.dayOfMonth ?? 1;
+            result.dayOfMonth = clamp(Number(domSource || 1), 1, 31);
+          }
+        } else {
+          result.monthlyMode = "day";
+        }
+        if (result.monthlyMode !== "nth") {
+          delete result.nthWeek;
+          delete result.nthWeekday;
+        }
         if (typeof entry.onDate === "string") result.onDate = entry.onDate;
         if (typeof entry.date === "string") result.date = entry.date;
         else result.date = result.startDate;
@@ -142,6 +201,28 @@
         .filter((item) => item !== null);
 
     state.oneOffs = sanitizeList(state.oneOffs);
+
+    state.incomeStreams = state.incomeStreams
+      .filter((stream) => stream && typeof stream === "object" && !Array.isArray(stream))
+      .map((stream) => {
+        const next = { ...stream };
+        next.dayOfMonth = clamp(Number(next.dayOfMonth ?? 1), 1, 31);
+        const freq = typeof next.frequency === "string" ? next.frequency : null;
+        if (freq === "monthly" && stream.monthlyMode === "nth") {
+          next.monthlyMode = "nth";
+          next.nthWeek = normalizeNth(stream.nthWeek);
+          next.nthWeekday = clamp(Number(stream.nthWeekday ?? stream.dayOfWeek ?? 0), 0, 6);
+        } else if (freq === "monthly") {
+          next.monthlyMode = "day";
+          delete next.nthWeek;
+          delete next.nthWeekday;
+        } else {
+          next.monthlyMode = "day";
+          delete next.nthWeek;
+          delete next.nthWeekday;
+        }
+        return next;
+      });
 
     const legacyExpenses = Array.isArray(raw.expenseStreams) ? raw.expenseStreams : [];
     if (legacyExpenses.length) {
@@ -219,6 +300,31 @@
     return date.getDate() === target;
   };
 
+  const occursNthWeekday = (date, nth, weekday) => {
+    const nthValue = normalizeNth(nth);
+    const parsedWeekday = Number(weekday);
+    const baseDow = Number.isNaN(parsedWeekday) ? 0 : parsedWeekday;
+    const targetDow = ((baseDow % 7) + 7) % 7;
+    const firstOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+    const firstDow = firstOfMonth.getDay();
+    const firstOccurrenceDay = 1 + ((targetDow - firstDow + 7) % 7);
+    const occurrences = [];
+    const lastDay = lastDayOfMonth(date.getFullYear(), date.getMonth());
+    for (let i = 0; i < 6; i += 1) {
+      const day = firstOccurrenceDay + i * 7;
+      if (day > lastDay) break;
+      occurrences.push(day);
+    }
+    if (!occurrences.length) return false;
+    if (nthValue === "last") {
+      return date.getDate() === occurrences[occurrences.length - 1];
+    }
+    const idx = Number(nthValue) - 1;
+    if (!Number.isFinite(idx) || idx < 0) return false;
+    if (idx >= occurrences.length) return false;
+    return date.getDate() === occurrences[idx];
+  };
+
   const occursWeeklyOn = (date, dow) => date.getDay() === Number(dow);
 
   const occursBiweeklyOn = (date, dow, startDate) => {
@@ -248,6 +354,9 @@
       case "biweekly":
         return occursBiweeklyOn(d, stream.dayOfWeek, s);
       case "monthly":
+        if (stream.monthlyMode === "nth") {
+          return occursNthWeekday(d, stream.nthWeek, stream.nthWeekday);
+        }
         return occursMonthly(d, Number(stream.dayOfMonth || 1));
       default:
         return false;
@@ -271,6 +380,9 @@
       skipWeekends: Boolean(tx.skipWeekends),
       dayOfWeek: Number(tx.dayOfWeek ?? 0),
       dayOfMonth: Number(tx.dayOfMonth ?? 1),
+      monthlyMode: tx.monthlyMode === "nth" ? "nth" : "day",
+      nthWeek: tx.nthWeek,
+      nthWeekday: Number(tx.nthWeekday ?? tx.dayOfWeek ?? 0),
     };
 
     return shouldApplyStreamOn(date, shim);
@@ -436,6 +548,17 @@
   };
 
   // One-offs
+  const describeMonthlySchedule = (item) => {
+    if (!item || typeof item !== "object") return "Monthly";
+    if (item.monthlyMode === "nth") {
+      const nth = normalizeNth(item.nthWeek);
+      const nthLabel = describeNth(nth);
+      return `Monthly on the ${nthLabel} ${getDOWLabel(item.nthWeekday)}`;
+    }
+    const day = clamp(Number(item.dayOfMonth ?? 1), 1, 31);
+    return `Monthly on day ${day}`;
+  };
+
   const describeTransactionSchedule = (tx) => {
     if (!tx || typeof tx !== "object") return "—";
 
@@ -457,8 +580,7 @@
       case "biweekly":
         return `Every 2 weeks on ${getDOWLabel(tx.dayOfWeek)}${range}`;
       case "monthly": {
-        const day = clamp(Number(tx.dayOfMonth ?? 1), 1, 31);
-        return `Monthly on day ${day}${range}`;
+        return `${describeMonthlySchedule(tx)}${range}`;
       }
       case "once": {
         const when = tx.onDate || tx.date || start;
@@ -493,6 +615,17 @@
     }
   };
 
+  const applyMonthlyModeVisibility = (select) => {
+    if (!select) return;
+    const form = select.closest("form");
+    if (!form) return;
+    const mode = select.value === "nth" ? "nth" : "day";
+    form.querySelectorAll(".monthly-mode").forEach((el) => el.classList.add("hidden"));
+    form
+      .querySelectorAll(`.monthly-mode-${mode}`)
+      .forEach((el) => el.classList.remove("hidden"));
+  };
+
   const showTransactionFreqBlocks = () => {
     const form = $("#oneOffForm");
     if (!form) return;
@@ -512,6 +645,10 @@
     const freq = $("#ooFreq").value;
     $$(".tx-freq-" + freq, form).forEach((el) => el.classList.remove("hidden"));
 
+    if (freq === "monthly") {
+      applyMonthlyModeVisibility($("#ooMonthlyMode"));
+    }
+
     const baseDate = $("#ooDate").value;
     if (baseDate) {
       const startInput = $("#ooStart");
@@ -529,6 +666,9 @@
 
     repeatsToggle.addEventListener("change", showTransactionFreqBlocks);
     freqSel.addEventListener("change", showTransactionFreqBlocks);
+    $("#ooMonthlyMode")?.addEventListener("change", (e) => {
+      applyMonthlyModeVisibility(e.target);
+    });
     const dateInput = $("#ooDate");
     dateInput?.addEventListener("change", () => {
       if (!repeatsToggle.checked) return;
@@ -578,7 +718,15 @@
           entry.dayOfWeek = clamp(Number($("#ooDOW").value || 0), 0, 6);
         }
         if (frequency === "monthly") {
-          entry.dayOfMonth = clamp(Number($("#ooDOM").value || 1), 1, 31);
+          const modeSel = $("#ooMonthlyMode");
+          const mode = modeSel && modeSel.value === "nth" ? "nth" : "day";
+          entry.monthlyMode = mode;
+          if (mode === "nth") {
+            entry.nthWeek = normalizeNth($("#ooNthWeek").value);
+            entry.nthWeekday = clamp(Number($("#ooNthWeekday").value || 0), 0, 6);
+          } else {
+            entry.dayOfMonth = clamp(Number($("#ooDOM").value || 1), 1, 31);
+          }
         }
       }
 
@@ -605,6 +753,9 @@
     const val = $("#stFreq").value;
     $$(".freq-only").forEach((el) => el.classList.add("hidden"));
     $$(".freq-" + val).forEach((el) => el.classList.remove("hidden"));
+    if (val === "monthly") {
+      applyMonthlyModeVisibility($("#stMonthlyMode"));
+    }
   };
 
   const renderStreams = () => {
@@ -618,7 +769,7 @@
           case "daily": return `Daily${st.skipWeekends ? " (M–F)" : ""}`;
           case "weekly": return `Weekly on ${getDOWLabel(st.dayOfWeek)}`;
           case "biweekly": return `Every 2 weeks on ${getDOWLabel(st.dayOfWeek)}`;
-          case "monthly": return `Monthly on day ${st.dayOfMonth}`;
+          case "monthly": return describeMonthlySchedule(st);
           default: return "";
         }
       })();
@@ -639,6 +790,9 @@
 
   const bindStreams = () => {
     $("#stFreq").addEventListener("change", showFreqBlocks);
+    $("#stMonthlyMode")?.addEventListener("change", (e) => {
+      applyMonthlyModeVisibility(e.target);
+    });
     showFreqBlocks();
 
     $("#streamForm").addEventListener("submit", (e) => {
@@ -661,7 +815,10 @@
         onDate: null,
         skipWeekends: false,
         dayOfWeek: 1,
-        dayOfMonth: 1
+        dayOfMonth: 1,
+        monthlyMode: "day",
+        nthWeek: "1",
+        nthWeekday: 0
       };
 
       if (frequency === "once") {
@@ -675,7 +832,15 @@
         stream.dayOfWeek = Number($("#stDOW").value);
       }
       if (frequency === "monthly") {
-        stream.dayOfMonth = clamp(Number($("#stDOM").value || 1), 1, 31);
+        const modeSel = $("#stMonthlyMode");
+        const mode = modeSel && modeSel.value === "nth" ? "nth" : "day";
+        stream.monthlyMode = mode;
+        if (mode === "nth") {
+          stream.nthWeek = normalizeNth($("#stNthWeek").value);
+          stream.nthWeekday = clamp(Number($("#stNthWeekday").value || 0), 0, 6);
+        } else {
+          stream.dayOfMonth = clamp(Number($("#stDOM").value || 1), 1, 31);
+        }
       }
 
       STATE.incomeStreams.push(stream);
