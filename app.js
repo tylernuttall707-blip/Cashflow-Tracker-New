@@ -24,6 +24,137 @@
     const [y, m, d] = s.split("-").map(Number);
     return new Date(y, m - 1, d);
   };
+  const escapeHtml = (value) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  const round2 = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 0;
+    return Math.round(num * 100) / 100;
+  };
+  const addDays = (ymd, days = 0) => {
+    if (!ymd || typeof ymd !== "string") return ymd;
+    const delta = Number(days || 0);
+    if (!Number.isFinite(delta)) return ymd;
+    const d = fromYMD(ymd);
+    if (Number.isNaN(d.getTime())) return ymd;
+    d.setDate(d.getDate() + delta);
+    return toYMD(d);
+  };
+  const rollWeekend = (ymd, policy = "forward") => {
+    if (!ymd || typeof ymd !== "string") return ymd;
+    const d = fromYMD(ymd);
+    if (Number.isNaN(d.getTime())) return ymd;
+    const moveForward = () => {
+      do {
+        d.setDate(d.getDate() + 1);
+      } while (d.getDay() === 0 || d.getDay() === 6);
+    };
+    const moveBack = () => {
+      do {
+        d.setDate(d.getDate() - 1);
+      } while (d.getDay() === 0 || d.getDay() === 6);
+    };
+    if (d.getDay() === 6 || d.getDay() === 0) {
+      if (policy === "back") moveBack();
+      else if (policy === "forward") moveForward();
+      // policy === "none" keeps original weekend date
+    }
+    return toYMD(d);
+  };
+  const parseCurrency = (value) => {
+    if (value === null || value === undefined || value === "") return NaN;
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? value : NaN;
+    }
+    let str = String(value).trim();
+    if (!str) return NaN;
+    let negative = false;
+    if (/^\((.*)\)$/.test(str)) {
+      negative = true;
+      str = str.slice(1, -1);
+    }
+    str = str.replace(/[−–—]/g, "-");
+    if (str.endsWith("-")) {
+      negative = true;
+      str = str.slice(0, -1);
+    }
+    if (str.startsWith("-")) {
+      negative = true;
+      str = str.slice(1);
+    }
+    str = str.replace(/[^0-9.,]/g, "");
+    if (!str) return NaN;
+    const hasComma = str.includes(",");
+    const hasDot = str.includes(".");
+    if (hasComma && hasDot) {
+      if (str.lastIndexOf(",") > str.lastIndexOf(".")) {
+        str = str.replace(/\./g, "");
+        str = str.replace(/,/g, ".");
+      } else {
+        str = str.replace(/,/g, "");
+      }
+    } else if (hasComma) {
+      const parts = str.split(",");
+      if (parts.length > 1 && parts[parts.length - 1].length === 2) {
+        str = parts.slice(0, -1).join("") + "." + parts[parts.length - 1];
+      } else {
+        str = parts.join("");
+      }
+    } else {
+      str = str.replace(/,/g, "");
+    }
+    const num = Number(str);
+    if (!Number.isFinite(num)) return NaN;
+    return negative ? -num : num;
+  };
+  const parseExcelOrISODate = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) return null;
+      return toYMD(value);
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      const serial = Number(value);
+      const whole = Math.floor(serial);
+      const frac = serial - whole;
+      let days = whole;
+      if (days > 59) days -= 1; // Excel leap year bug
+      const epoch = Date.UTC(1899, 11, 31);
+      const ms = epoch + days * 86400000 + Math.round(frac * 86400000);
+      const dt = new Date(ms);
+      if (Number.isNaN(dt.getTime())) return null;
+      return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
+    }
+    const str = String(value).trim();
+    if (!str) return null;
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(str)) {
+      const [y, m, d] = str.split("-").map(Number);
+      const dt = new Date(y, m - 1, d);
+      if (Number.isNaN(dt.getTime())) return null;
+      return toYMD(dt);
+    }
+    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(str)) {
+      const parts = str.split(/[\/\-]/).map((seg) => seg.trim());
+      if (parts.length === 3) {
+        const [m, d, yRaw] = parts;
+        let year = Number(yRaw);
+        const month = Number(m);
+        const day = Number(d);
+        if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+        if (year < 100) year += year >= 70 ? 1900 : 2000;
+        const dt = new Date(year, month - 1, day);
+        if (Number.isNaN(dt.getTime())) return null;
+        return toYMD(dt);
+      }
+    }
+    const parsed = new Date(str);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return toYMD(parsed);
+  };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
   const uid = () => Math.random().toString(36).slice(2, 9);
   const compareYMD = (a, b) => String(a || "").localeCompare(String(b || ""));
@@ -545,6 +676,842 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
   }
   return tx;
 });
+
+
+  // ---------- Receivables importer helpers ----------
+  const normalizeHeaderLabel = (value) =>
+    String(value ?? "")
+      .replace(/[\r\n]+/g, " ")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+
+  const COMPANY_HEADER_CANDIDATES = ["customer", "distributor", "company", "bill to", "sold to"];
+  const INVOICE_HEADER_CANDIDATES = ["invoice", "inv #", "doc #", "document", "reference", "ref"];
+  const DUE_HEADER_CANDIDATES = ["due", "due date", "due_dt", "net due", "maturity", "due date (net)"];
+  const AMOUNT_HEADER_CANDIDATES = ["open amount", "balance", "amt due", "amount", "outstanding", "open bal"];
+  const TERMS_HEADER_CANDIDATES = ["terms", "payment terms", "net terms", "terms description"];
+  const INVOICE_DATE_HEADER_CANDIDATES = [
+    "invoice date",
+    "inv date",
+    "document date",
+    "doc date",
+    "document dt",
+    "posting date",
+    "invoice_dt",
+    "doc_dt",
+    "date",
+  ];
+
+  const detectARColumns = (headers = []) => {
+    const normalized = headers.map((header) => ({ raw: header, norm: normalizeHeaderLabel(header) }));
+    const evaluate = (candidates) => {
+      let best = { header: "", score: 0 };
+      for (const entry of normalized) {
+        if (!entry.norm) continue;
+        let score = 0;
+        for (const candidate of candidates) {
+          const normCandidate = normalizeHeaderLabel(candidate);
+          if (!normCandidate) continue;
+          if (entry.norm === normCandidate) {
+            score = Math.max(score, 3);
+          } else if (entry.norm.includes(normCandidate) || normCandidate.includes(entry.norm)) {
+            score = Math.max(score, 2);
+          } else if (normCandidate.split(" ").some((token) => token && entry.norm.includes(token))) {
+            score = Math.max(score, 1);
+          }
+        }
+        if (score > best.score) {
+          best = { header: entry.raw, score };
+        }
+      }
+      return best;
+    };
+
+    const mapping = {
+      company: evaluate(COMPANY_HEADER_CANDIDATES),
+      invoice: evaluate(INVOICE_HEADER_CANDIDATES),
+      due: evaluate(DUE_HEADER_CANDIDATES),
+      amount: evaluate(AMOUNT_HEADER_CANDIDATES),
+    };
+    const aux = {
+      terms: evaluate(TERMS_HEADER_CANDIDATES),
+      invoiceDate: evaluate(INVOICE_DATE_HEADER_CANDIDATES),
+    };
+
+    return {
+      mapping: Object.fromEntries(Object.entries(mapping).map(([key, val]) => [key, val.header || ""])),
+      scores: Object.fromEntries(Object.entries(mapping).map(([key, val]) => [key, val.score || 0])),
+      aux: Object.fromEntries(Object.entries(aux).map(([key, val]) => [key, val.header || ""])),
+    };
+  };
+
+  const resolveColumnName = (headers = [], name) => {
+    if (!name) return "";
+    const direct = headers.find((header) => String(header) === name);
+    if (direct !== undefined) return direct;
+    const norm = normalizeHeaderLabel(name);
+    if (!norm) return name;
+    const match = headers.find((header) => normalizeHeaderLabel(header) === norm);
+    return match || name;
+  };
+
+  const parseNetTerms = (value) => {
+    if (value === null || value === undefined) return null;
+    const str = String(value).trim();
+    if (!str) return null;
+    const netMatch = str.match(/net\s*(\d+)/i);
+    if (netMatch && Number.isFinite(Number(netMatch[1]))) return Number(netMatch[1]);
+    const daysMatch = str.match(/(\d+)\s*day/i);
+    if (daysMatch && Number.isFinite(Number(daysMatch[1]))) return Number(daysMatch[1]);
+    return null;
+  };
+
+  const defaultARName = (company, invoice) => {
+    const companyLabel = String(company ?? "").trim();
+    const invoiceLabel = String(invoice ?? "").trim();
+    if (companyLabel && invoiceLabel) return `(${companyLabel}) Inv #${invoiceLabel}`;
+    if (invoiceLabel) return `Invoice #${invoiceLabel}`;
+    if (companyLabel) return `${companyLabel} Receivable`;
+    return "Receivable";
+  };
+
+  const normalizeCompanyKey = (value) => {
+    if (value === null || value === undefined) return "";
+    return String(value).trim().toUpperCase();
+  };
+  const normalizeInvoiceKey = (value) => {
+    if (value === null || value === undefined) return "";
+    return String(value).trim().toUpperCase().replace(/\s+/g, "");
+  };
+  const makeSourceKey = (company, invoice) => {
+    const normCompany = normalizeCompanyKey(company);
+    const normInvoice = normalizeInvoiceKey(invoice);
+    if (!normCompany || !normInvoice) return null;
+    return `${normCompany}#${normInvoice}`;
+  };
+
+  const findOneOffBySourceKey = (key) => {
+    if (!key) return undefined;
+    return (STATE.oneOffs || []).find((tx) => tx && tx.source === "AR" && tx.sourceKey === key);
+  };
+
+  const arState = {
+    rows: [],
+    mapping: { company: "", invoice: "", due: "", amount: "" },
+    aux: { terms: "", invoiceDate: "" },
+    headerOrder: [],
+    page: 1,
+    perPage: 200,
+    parsing: false,
+    summary: null,
+    detection: null,
+    lastRange: { start: 0, end: 0 },
+    options: { roll: "forward", lag: 0, conf: 100, category: "AR" },
+  };
+
+  const computeExpectedDate = (dueYMD) => {
+    if (!dueYMD || !isValidYMDString(dueYMD)) return dueYMD || "";
+    const rollPolicy = arState.options.roll || "forward";
+    const rolled = rollWeekend(dueYMD, rollPolicy);
+    const lagValue = Number(arState.options.lag || 0);
+    const lagDays = Number.isFinite(lagValue) ? Math.trunc(lagValue) : 0;
+    return addDays(rolled, lagDays);
+  };
+
+  const validateARRow = (row) => {
+    if (!row) return false;
+    const errors = {};
+    if (!row.company || !String(row.company).trim()) errors.company = true;
+    if (!row.invoice || !String(row.invoice).trim()) errors.invoice = true;
+    if (!row.dueDate || !isValidYMDString(row.dueDate)) errors.dueDate = true;
+    if (!row.expectedDate || !isValidYMDString(row.expectedDate)) errors.expectedDate = true;
+    if (!Number.isFinite(Number(row.amount)) || Number(row.amount) === 0) errors.amount = true;
+    if (!row.name || !String(row.name).trim()) errors.name = true;
+    row.errors = errors;
+    row.valid = Object.keys(errors).length === 0;
+    if (!row.valid) row.selected = false;
+    return row.valid;
+  };
+
+  const refreshARRow = (row, { dueChanged = false, forceExpected = false, forceAmount = false, forceName = false } = {}) => {
+    if (!row) return;
+    if (dueChanged) row.manualExpected = false;
+    const conf = clamp(Number(arState.options.conf || 0), 0, 100);
+    if (forceExpected || dueChanged || (!row.manualExpected && row.dueDate)) {
+      row.expectedDate = computeExpectedDate(row.dueDate);
+    }
+    if (forceAmount || (!row.manualAmount && Number.isFinite(row.baseAmount))) {
+      row.amount = round2(row.baseAmount * (conf / 100));
+    }
+    if (forceName || (!row.manualName && row.company !== undefined)) {
+      row.name = defaultARName(row.company, row.invoice);
+    }
+    row.sourceKey = makeSourceKey(row.company, row.invoice);
+    row.action = row.sourceKey && findOneOffBySourceKey(row.sourceKey) ? "update" : "add";
+    validateARRow(row);
+  };
+
+  const updateSelectAllState = () => {
+    const selectAll = $("#arSelectAll");
+    if (!selectAll) return;
+    const validRows = arState.rows.filter((row) => row.valid);
+    if (!validRows.length) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+      selectAll.disabled = arState.rows.length === 0;
+      return;
+    }
+    const selected = validRows.filter((row) => row.selected).length;
+    selectAll.disabled = false;
+    selectAll.checked = selected > 0 && selected === validRows.length;
+    selectAll.indeterminate = selected > 0 && selected < validRows.length;
+  };
+
+  const updateARImportButton = () => {
+    const btn = $("#arImportBtn");
+    if (!btn) return;
+    const baseLabel = btn.dataset.baseLabel || btn.textContent || "Import";
+    if (arState.parsing) {
+      btn.disabled = true;
+      btn.textContent = baseLabel;
+      return;
+    }
+    const selected = arState.rows.filter((row) => row.valid && row.selected).length;
+    btn.disabled = selected === 0;
+    btn.textContent = selected > 0 ? `${baseLabel} (${selected})` : baseLabel;
+  };
+
+  const applyRowToDOM = (row) => {
+    const tbody = $("#arPreview tbody");
+    if (!tbody) return;
+    const tr = tbody.querySelector(`tr[data-row-id="${row.id}"]`);
+    if (!tr) return;
+    tr.classList.toggle("invalid", !row.valid);
+    const checkbox = tr.querySelector('input[type="checkbox"][data-act="toggleRow"]');
+    if (checkbox) {
+      checkbox.disabled = !row.valid;
+      checkbox.checked = row.valid && row.selected;
+    }
+    tr.querySelectorAll('[data-field]').forEach((input) => {
+      const field = input.dataset.field;
+      let value = row[field];
+      if (field === "amount") {
+        value = Number.isFinite(Number(row.amount)) ? Number(row.amount).toFixed(2) : "";
+      }
+      if (field === "dueDate" || field === "expectedDate") {
+        value = row[field] || "";
+      }
+      if (field === "company" || field === "invoice" || field === "name") {
+        value = row[field] ?? "";
+      }
+      if (document.activeElement !== input && value !== undefined) {
+        input.value = value;
+      }
+      const hasError = Boolean(row.errors?.[field]);
+      input.classList.toggle("invalid", hasError);
+      const cell = input.closest("td");
+      if (cell) cell.classList.toggle("invalid-cell", hasError);
+    });
+    const badge = tr.querySelector('[data-badge]');
+    if (badge) {
+      badge.textContent = row.action === "update" ? "Update" : "Add";
+      badge.classList.toggle("badge-update", row.action === "update");
+      badge.classList.toggle("badge-add", row.action !== "update");
+    }
+  };
+
+  const renderARPagination = () => {
+    const container = $("#arPagination");
+    if (!container) return;
+    container.innerHTML = "";
+    const total = arState.rows.length;
+    if (!total) return;
+    const perPage = arState.perPage || total;
+    const pages = Math.max(1, Math.ceil(total / perPage));
+    const info = document.createElement("span");
+    const start = Math.min(arState.lastRange.start, total) || (total ? 1 : 0);
+    const end = Math.min(arState.lastRange.end, total);
+    info.textContent = `Rows ${start}-${end} of ${total}`;
+
+    const pageInfo = document.createElement("span");
+    pageInfo.textContent = pages > 1 ? `Page ${arState.page} of ${pages}` : "";
+
+    const pager = document.createElement("div");
+    pager.className = "pager";
+    const prev = document.createElement("button");
+    prev.textContent = "Prev";
+    prev.disabled = arState.page <= 1;
+    prev.dataset.page = String(arState.page - 1);
+    const next = document.createElement("button");
+    next.textContent = "Next";
+    next.disabled = arState.page >= pages;
+    next.dataset.page = String(arState.page + 1);
+    pager.appendChild(prev);
+    pager.appendChild(next);
+
+    container.appendChild(info);
+    if (pageInfo.textContent) container.appendChild(pageInfo);
+    if (pages > 1) container.appendChild(pager);
+  };
+
+  const updateARStatus = (message = "", kind = "") => {
+    const el = $("#arStatus");
+    if (!el) return;
+    el.textContent = message;
+    el.classList.remove("error", "success");
+    if (kind) el.classList.add(kind);
+  };
+
+  const renderARSummary = () => {
+    const el = $("#arSummary");
+    if (!el) return;
+    if (!arState.summary) {
+      el.textContent = "";
+      return;
+    }
+    const { added = 0, updated = 0, skipped = 0 } = arState.summary;
+    el.textContent = `Last import: ${added} added, ${updated} updated${skipped ? `, ${skipped} skipped` : ""}.`;
+  };
+
+  const renderARPreview = () => {
+    const tbody = $("#arPreview tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    const selectAll = $("#arSelectAll");
+    if (selectAll) {
+      selectAll.disabled = arState.rows.length === 0;
+      if (arState.rows.length === 0) {
+        selectAll.checked = false;
+        selectAll.indeterminate = false;
+      }
+    }
+    if (!arState.rows.length) {
+      arState.lastRange = { start: 0, end: 0 };
+      updateARImportButton();
+      updateSelectAllState();
+      renderARPagination();
+      renderARSummary();
+      return;
+    }
+    const perPage = arState.perPage || arState.rows.length;
+    const totalPages = Math.max(1, Math.ceil(arState.rows.length / perPage));
+    if (arState.page > totalPages) arState.page = totalPages;
+    const startIndex = (arState.page - 1) * perPage;
+    const endIndex = Math.min(startIndex + perPage, arState.rows.length);
+    const pageRows = arState.rows.slice(startIndex, endIndex);
+    for (const row of pageRows) {
+      const amountValue = Number.isFinite(Number(row.amount)) ? Number(row.amount).toFixed(2) : "";
+      const tr = document.createElement("tr");
+      tr.dataset.rowId = row.id;
+      tr.innerHTML = `
+        <td class="select-col">
+          <input type="checkbox" data-act="toggleRow" data-id="${row.id}" ${row.valid ? "" : "disabled"} ${row.valid && row.selected ? "checked" : ""} />
+        </td>
+        <td><input type="text" data-field="company" data-id="${row.id}" value="${escapeHtml(row.company ?? "")}" /></td>
+        <td><input type="text" data-field="invoice" data-id="${row.id}" value="${escapeHtml(row.invoice ?? "")}" /></td>
+        <td><input type="date" data-field="dueDate" data-id="${row.id}" value="${row.dueDate || ""}" /></td>
+        <td><input type="date" data-field="expectedDate" data-id="${row.id}" value="${row.expectedDate || ""}" /></td>
+        <td><input type="number" step="0.01" data-field="amount" data-id="${row.id}" value="${amountValue}" /></td>
+        <td><input type="text" data-field="name" data-id="${row.id}" value="${escapeHtml(row.name ?? "")}" /></td>
+        <td><span class="badge ${row.action === "update" ? "badge-update" : "badge-add"}" data-badge>${row.action === "update" ? "Update" : "Add"}</span></td>
+      `;
+      tbody.appendChild(tr);
+      applyRowToDOM(row);
+    }
+    arState.lastRange = { start: startIndex + 1, end: endIndex };
+    updateARImportButton();
+    updateSelectAllState();
+    renderARPagination();
+    renderARSummary();
+  };
+
+  const normalizeARRows = (rawRows, mapping, aux) => {
+    const rows = [];
+    let skipped = 0;
+    const totalsRegex = /^(total|subtotal|aging|bucket)/i;
+    for (const item of rawRows) {
+      if (!item || typeof item.values !== "object") {
+        skipped += 1;
+        continue;
+      }
+      const raw = item.values;
+      const firstCell = item.firstCell;
+      if (typeof firstCell === "string" && totalsRegex.test(firstCell.trim().toLowerCase())) {
+        skipped += 1;
+        continue;
+      }
+      const companyRaw = mapping.company ? raw[mapping.company] : undefined;
+      const invoiceRaw = mapping.invoice ? raw[mapping.invoice] : undefined;
+      const dueRaw = mapping.due ? raw[mapping.due] : undefined;
+      const amountRaw = mapping.amount ? raw[mapping.amount] : undefined;
+      const termsRaw = aux.terms ? raw[aux.terms] : undefined;
+      const invoiceDateRaw = aux.invoiceDate ? raw[aux.invoiceDate] : undefined;
+
+      const company = String(companyRaw ?? "").trim();
+      const invoice = String(invoiceRaw ?? "").trim();
+      let dueDate = parseExcelOrISODate(dueRaw);
+      const invoiceDate = parseExcelOrISODate(invoiceDateRaw);
+      if (!dueDate) {
+        const netDays = parseNetTerms(termsRaw);
+        if (invoiceDate && Number.isFinite(netDays)) {
+          dueDate = addDays(invoiceDate, netDays);
+        }
+      }
+      const baseAmount = parseCurrency(amountRaw);
+
+      if (!company || !invoice || !dueDate || !Number.isFinite(baseAmount) || baseAmount === 0) {
+        skipped += 1;
+        continue;
+      }
+
+      const row = {
+        id: `ar-${uid()}`,
+        company,
+        invoice,
+        dueDate,
+        expectedDate: dueDate,
+        baseAmount: round2(baseAmount),
+        amount: round2(baseAmount),
+        name: defaultARName(company, invoice),
+        manualExpected: false,
+        manualAmount: false,
+        manualName: false,
+        selected: true,
+        errors: {},
+        sourceKey: makeSourceKey(company, invoice),
+        action: "add",
+      };
+      rows.push(row);
+    }
+    return { rows, skipped };
+  };
+
+  const parseARFile = (file) =>
+    new Promise((resolve, reject) => {
+      if (!file) {
+        resolve({ rows: [], headers: [] });
+        return;
+      }
+      const ext = file.name?.split(".").pop()?.toLowerCase();
+      if (ext === "csv") {
+        if (typeof Papa === "undefined") {
+          reject(new Error("CSV parser unavailable"));
+          return;
+        }
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: (results) => {
+            try {
+              const headers = (results.meta?.fields || []).map((h) => String(h ?? "").trim());
+              const firstField = headers[0];
+              const rows = (results.data || [])
+                .map((row) => {
+                  const cleaned = { ...row };
+                  const allBlank = Object.values(cleaned).every(
+                    (value) => value === null || value === undefined || String(value).trim() === ""
+                  );
+                  if (allBlank) return null;
+                  const firstCell = firstField ? cleaned[firstField] : Object.values(cleaned)[0];
+                  return { values: cleaned, firstCell };
+                })
+                .filter(Boolean);
+              resolve({ rows, headers });
+            } catch (err) {
+              reject(err);
+            }
+          },
+          error: (err) => reject(err || new Error("Failed to parse CSV")),
+        });
+        return;
+      }
+      if (ext === "xlsx" || ext === "xls") {
+        if (typeof XLSX === "undefined") {
+          reject(new Error("Excel parser unavailable"));
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const data = new Uint8Array(ev.target.result);
+            const workbook = XLSX.read(data, { type: "array" });
+            const sheetName = workbook.SheetNames[0];
+            const sheet = workbook.Sheets[sheetName];
+            const rowsArray = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+            const headerRow = rowsArray.find((row) => Array.isArray(row) && row.some((cell) => String(cell).trim() !== ""));
+            if (!headerRow) {
+              resolve({ rows: [], headers: [] });
+              return;
+            }
+            const headerIndex = rowsArray.indexOf(headerRow);
+            const headers = headerRow.map((cell) => String(cell ?? "").trim());
+            const dataRows = rowsArray.slice(headerIndex + 1);
+            const rows = dataRows
+              .map((arr) => {
+                if (!Array.isArray(arr)) return null;
+                const allBlank = arr.every((value) => value === null || value === undefined || String(value).trim() === "");
+                if (allBlank) return null;
+                const values = {};
+                headers.forEach((header, idx) => {
+                  values[header] = arr[idx];
+                });
+                return { values, firstCell: arr[0] };
+              })
+              .filter(Boolean);
+            resolve({ rows, headers });
+          } catch (err) {
+            reject(err);
+          }
+        };
+        reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+        reader.readAsArrayBuffer(file);
+        return;
+      }
+      reject(new Error("Unsupported file type"));
+    });
+
+  const recalcARRows = ({ force = false } = {}) => {
+    if (!arState.rows.length) return;
+    for (const row of arState.rows) {
+      if (force) {
+        row.manualExpected = false;
+        row.manualAmount = false;
+      }
+      const shouldExpected = force || (!row.manualExpected && row.dueDate);
+      const shouldAmount = force || (!row.manualAmount && Number.isFinite(row.baseAmount));
+      refreshARRow(row, {
+        forceExpected: shouldExpected,
+        forceAmount: shouldAmount,
+        forceName: false,
+      });
+    }
+  };
+
+  const handleARParse = async () => {
+    const fileInput = $("#arFile");
+    const file = fileInput?.files?.[0];
+    if (!file) {
+      updateARStatus("Choose a CSV/XLS(X) file to preview.", "error");
+      return;
+    }
+    arState.parsing = true;
+    updateARStatus("Parsing receivables…");
+    updateARImportButton();
+    try {
+      const { rows: rawRows, headers } = await parseARFile(file);
+      if (!headers.length && !rawRows.length) {
+        arState.rows = [];
+        renderARPreview();
+        updateARStatus("No data rows found in file.", "error");
+        return;
+      }
+      const detection = detectARColumns(headers);
+      arState.detection = detection;
+
+      const applySuggestion = (selector, suggestion) => {
+        const input = $(selector);
+        if (!input) return;
+        if (!input.value && suggestion) input.value = suggestion;
+      };
+      applySuggestion("#colCompany", detection.mapping.company);
+      applySuggestion("#colInvoice", detection.mapping.invoice);
+      applySuggestion("#colDue", detection.mapping.due);
+      applySuggestion("#colAmount", detection.mapping.amount);
+
+      const mappingInput = {
+        company: $("#colCompany")?.value?.trim() || "",
+        invoice: $("#colInvoice")?.value?.trim() || "",
+        due: $("#colDue")?.value?.trim() || "",
+        amount: $("#colAmount")?.value?.trim() || "",
+      };
+
+      const resolvedMapping = {
+        company: resolveColumnName(headers, mappingInput.company),
+        invoice: resolveColumnName(headers, mappingInput.invoice),
+        due: resolveColumnName(headers, mappingInput.due),
+        amount: resolveColumnName(headers, mappingInput.amount),
+      };
+
+      const missing = Object.entries(resolvedMapping)
+        .filter(([, column]) => !column || !headers.includes(column));
+      if (missing.length) {
+        const fields = missing.map(([key]) => key).join(", ");
+        updateARStatus(`Column not found for: ${fields}`, "error");
+        arState.rows = [];
+        renderARPreview();
+        return;
+      }
+
+      const resolvedAux = {
+        terms: detection.aux.terms ? resolveColumnName(headers, detection.aux.terms) : "",
+        invoiceDate: detection.aux.invoiceDate ? resolveColumnName(headers, detection.aux.invoiceDate) : "",
+      };
+
+      const { rows: normalizedRows, skipped } = normalizeARRows(rawRows, resolvedMapping, resolvedAux);
+      if (!normalizedRows.length) {
+        arState.rows = [];
+        renderARPreview();
+        updateARStatus("No valid invoice rows detected. Check your column mapping.", "error");
+        return;
+      }
+
+      const limitedRows = normalizedRows.slice(0, 5000);
+      arState.rows = limitedRows;
+      arState.mapping = resolvedMapping;
+      arState.aux = resolvedAux;
+      arState.page = 1;
+      arState.perPage = limitedRows.length > 1000 ? 200 : Math.max(limitedRows.length, 1);
+      arState.summary = null;
+
+      for (const row of arState.rows) {
+        row.manualAmount = false;
+        row.manualExpected = false;
+        row.manualName = false;
+        refreshARRow(row, { dueChanged: true, forceExpected: true, forceAmount: true, forceName: true });
+        row.selected = row.valid;
+      }
+
+      const validCount = arState.rows.filter((row) => row.valid).length;
+      const truncated = normalizedRows.length > limitedRows.length;
+      const parts = [];
+      parts.push(`${rawRows.length} rows parsed`);
+      parts.push(`${validCount} ready`);
+      if (skipped) parts.push(`${skipped} skipped`);
+      if (truncated) parts.push(`showing first ${limitedRows.length}`);
+      const lowConfidence = Object.values(detection.scores || {}).some((score) => score < 2);
+      if (lowConfidence) parts.push("check column mapping");
+
+      renderARPreview();
+      updateARStatus(parts.join(" · "));
+    } catch (err) {
+      const message = err?.message || String(err);
+      updateARStatus(`Failed to parse file: ${message}`, "error");
+    } finally {
+      arState.parsing = false;
+      updateARImportButton();
+    }
+  };
+
+  const handleARSelectAll = (event) => {
+    const checked = Boolean(event.target.checked);
+    for (const row of arState.rows) {
+      if (!row.valid) {
+        row.selected = false;
+        continue;
+      }
+      row.selected = checked;
+    }
+    const tbody = $("#arPreview tbody");
+    if (tbody) {
+      tbody.querySelectorAll('input[type="checkbox"][data-act="toggleRow"]').forEach((checkbox) => {
+        const id = checkbox.dataset.id;
+        const row = arState.rows.find((r) => r.id === id);
+        if (!row) return;
+        checkbox.checked = row.valid && row.selected;
+      });
+    }
+    updateARImportButton();
+    updateSelectAllState();
+  };
+
+  const handleARTableInput = (event) => {
+    const target = event.target;
+    if (!target.matches('[data-field]')) return;
+    const id = target.dataset.id;
+    const field = target.dataset.field;
+    const row = arState.rows.find((r) => r.id === id);
+    if (!row) return;
+    const value = target.value;
+    switch (field) {
+      case "company":
+        row.company = value;
+        refreshARRow(row, { forceName: !row.manualName });
+        break;
+      case "invoice":
+        row.invoice = value;
+        refreshARRow(row, { forceName: !row.manualName });
+        break;
+      case "dueDate":
+        row.dueDate = value;
+        refreshARRow(row, { dueChanged: true, forceExpected: true });
+        break;
+      case "expectedDate":
+        row.expectedDate = value;
+        row.manualExpected = true;
+        validateARRow(row);
+        break;
+      case "amount":
+        row.amount = Number(value);
+        row.manualAmount = true;
+        validateARRow(row);
+        break;
+      case "name":
+        row.name = value;
+        row.manualName = true;
+        validateARRow(row);
+        break;
+      default:
+        break;
+    }
+    applyRowToDOM(row);
+    updateARImportButton();
+    updateSelectAllState();
+  };
+
+  const handleARTableChange = (event) => {
+    const target = event.target;
+    if (target.matches('input[type="checkbox"][data-act="toggleRow"]')) {
+      const id = target.dataset.id;
+      const row = arState.rows.find((r) => r.id === id);
+      if (!row) return;
+      if (!row.valid) {
+        target.checked = false;
+        row.selected = false;
+      } else {
+        row.selected = target.checked;
+      }
+      updateARImportButton();
+      updateSelectAllState();
+      return;
+    }
+    if (target.matches('[data-field]')) {
+      handleARTableInput(event);
+    }
+  };
+
+  const handleARPageClick = (event) => {
+    const btn = event.target.closest('button[data-page]');
+    if (!btn) return;
+    const page = Number(btn.dataset.page);
+    if (!Number.isFinite(page)) return;
+    if (page < 1) return;
+    const perPage = arState.perPage || arState.rows.length;
+    const totalPages = Math.max(1, Math.ceil(arState.rows.length / perPage));
+    if (page > totalPages) return;
+    arState.page = page;
+    renderARPreview();
+  };
+
+  const handleARImport = () => {
+    const selectedRows = arState.rows.filter((row) => row.valid && row.selected);
+    if (!selectedRows.length) {
+      updateARStatus("No rows selected for import.", "error");
+      return;
+    }
+    const defaultCategory = (arState.options.category || "AR").trim() || "AR";
+    let added = 0;
+    let updated = 0;
+    let skipped = 0;
+    for (const row of selectedRows) {
+      const sourceKey = row.sourceKey || makeSourceKey(row.company, row.invoice);
+      if (!sourceKey) {
+        skipped += 1;
+        row.selected = false;
+        continue;
+      }
+      const expected = row.expectedDate && isValidYMDString(row.expectedDate) ? row.expectedDate : row.dueDate;
+      if (!expected || !isValidYMDString(expected)) {
+        skipped += 1;
+        row.selected = false;
+        continue;
+      }
+      const amount = Number(row.amount);
+      if (!Number.isFinite(amount) || amount === 0) {
+        skipped += 1;
+        row.selected = false;
+        continue;
+      }
+      const name = row.name && row.name.trim() ? row.name.trim() : defaultARName(row.company, row.invoice);
+      const existing = findOneOffBySourceKey(sourceKey);
+      const entry = {
+        id: existing?.id || uid(),
+        date: expected,
+        type: "income",
+        name,
+        category: amount < 0 ? "AR Credit" : defaultCategory,
+        amount: round2(amount),
+        source: "AR",
+        sourceKey,
+      };
+      if (existing) {
+        Object.assign(existing, entry);
+        updated += 1;
+      } else {
+        STATE.oneOffs.push(entry);
+        added += 1;
+      }
+      row.action = "update";
+      row.sourceKey = sourceKey;
+      row.selected = false;
+    }
+    if (added || updated) {
+      save(STATE);
+      recalcAndRender();
+    }
+    arState.summary = { added, updated, skipped };
+    renderARPreview();
+    if (added || updated) {
+      updateARStatus(`Import complete: ${added} added, ${updated} updated${skipped ? `, ${skipped} skipped` : ""}.`, "success");
+    } else {
+      updateARStatus(skipped ? `Nothing imported. ${skipped} rows skipped.` : "Nothing to import.", "error");
+    }
+  };
+
+  const initARImporter = () => {
+    const rollSelect = $("#arRoll");
+    if (!rollSelect) return;
+    const lagInput = $("#arLag");
+    const confInput = $("#arConf");
+    const categoryInput = $("#arCategory");
+
+    arState.options.roll = rollSelect.value || "forward";
+    arState.options.lag = Number(lagInput?.value || 0) || 0;
+    const confValue = clamp(Number(confInput?.value || 100) || 0, 0, 100);
+    arState.options.conf = confValue;
+    if (confInput) confInput.value = confValue;
+    arState.options.category = categoryInput?.value || "AR";
+
+    rollSelect.addEventListener("change", (e) => {
+      arState.options.roll = e.target.value || "forward";
+    });
+    lagInput?.addEventListener("change", () => {
+      const val = Number(lagInput.value || 0);
+      const normalized = Number.isFinite(val) ? Math.max(0, Math.trunc(val)) : 0;
+      arState.options.lag = normalized;
+      lagInput.value = normalized;
+    });
+    confInput?.addEventListener("change", () => {
+      const val = Number(confInput.value || 0);
+      const normalized = clamp(Number.isFinite(val) ? val : 0, 0, 100);
+      arState.options.conf = normalized;
+      confInput.value = normalized;
+    });
+    categoryInput?.addEventListener("input", () => {
+      arState.options.category = categoryInput.value;
+    });
+
+    const importBtn = $("#arImportBtn");
+    if (importBtn) importBtn.dataset.baseLabel = importBtn.textContent || "Import";
+
+    $("#arParseBtn")?.addEventListener("click", handleARParse);
+    $("#arRecalcBtn")?.addEventListener("click", () => {
+      if (!arState.rows.length) {
+        updateARStatus("Nothing to recalculate yet.", "error");
+        return;
+      }
+      recalcARRows({ force: true });
+      renderARPreview();
+      updateARStatus("Recalculated using current options.", "success");
+    });
+    $("#arImportBtn")?.addEventListener("click", handleARImport);
+    $("#arSelectAll")?.addEventListener("change", handleARSelectAll);
+    const previewTable = $("#arPreview");
+    previewTable?.addEventListener("input", handleARTableInput);
+    previewTable?.addEventListener("change", handleARTableChange);
+    $("#arPagination")?.addEventListener("click", handleARPageClick);
+  };
 
 
 // ---------- Recurrence engine ----------
@@ -1560,6 +2527,7 @@ const shim = {
     bindAdjustments();
     bindOneOffs();
     bindStreams();
+    initARImporter();
 
     // Ensure defaults if missing
     if (!STATE.settings.endDate) STATE.settings.endDate = defaultEnd;
