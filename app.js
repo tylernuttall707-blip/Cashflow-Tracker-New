@@ -192,6 +192,13 @@ const firstWeekday = (value, fallback = 0) => {
     incomeStreams: [],
   });
 
+  const isValidYMDString = (value) => {
+    if (typeof value !== "string" || !value) return false;
+    const parsed = fromYMD(value);
+    if (Number.isNaN(parsed.getTime())) return false;
+    return toYMD(parsed) === value;
+  };
+
   const normalizeState = (raw, { strict = false } = {}) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
       throw new Error("Invalid state payload");
@@ -231,7 +238,10 @@ const firstWeekday = (value, fallback = 0) => {
       return value
         .map((step) => {
           if (!step || typeof step !== "object" || Array.isArray(step)) return null;
-          const effectiveFrom = typeof step.effectiveFrom === "string" ? step.effectiveFrom : null;
+          const effectiveFrom =
+            typeof step.effectiveFrom === "string" && isValidYMDString(step.effectiveFrom)
+              ? step.effectiveFrom
+              : null;
           const amount = Number(step.amount || 0);
           if (!effectiveFrom || !Number.isFinite(amount)) return null;
           return { effectiveFrom, amount: Math.abs(amount) };
@@ -272,13 +282,19 @@ const firstWeekday = (value, fallback = 0) => {
         const frequency = typeof entry.frequency === "string" ? entry.frequency : null;
         const startDate = typeof entry.startDate === "string" ? entry.startDate : null;
         const endDate = typeof entry.endDate === "string" ? entry.endDate : null;
-        if (!frequency || !startDate || !endDate) {
+        const datesValid =
+          frequency && startDate && endDate && isValidYMDString(startDate) && isValidYMDString(endDate);
+        if (!datesValid) {
           if (strict) throw new Error("Invalid recurring one-off metadata");
           return null;
         }
         result.frequency = frequency;
         result.startDate = startDate;
         result.endDate = endDate;
+        if (compareYMD(result.startDate, result.endDate) > 0) {
+          if (strict) throw new Error("Invalid recurring one-off range");
+          result.endDate = result.startDate;
+        }
         result.skipWeekends = Boolean(entry.skipWeekends);
 
         if (entry.dayOfWeek !== undefined) {
@@ -355,10 +371,15 @@ const firstWeekday = (value, fallback = 0) => {
       const frequency = typeof entry.frequency === "string" ? entry.frequency : "once";
       const startDate = typeof entry.startDate === "string" ? entry.startDate : typeof entry.onDate === "string" ? entry.onDate : null;
       const endDate = typeof entry.endDate === "string" ? entry.endDate : typeof entry.onDate === "string" ? entry.onDate : null;
-      if (!startDate || !endDate) {
+      const datesValid = startDate && endDate && isValidYMDString(startDate) && isValidYMDString(endDate);
+      if (!datesValid) {
         if (strict) throw new Error("Invalid income stream date range");
         return null;
       }
+
+      const startVsEnd = compareYMD(startDate, endDate);
+      const normalizedStart = startVsEnd <= 0 ? startDate : endDate;
+      const normalizedEnd = startVsEnd <= 0 ? endDate : startDate;
 
       const id = typeof entry.id === "string" ? entry.id : uid();
       const stream = {
@@ -367,8 +388,8 @@ const firstWeekday = (value, fallback = 0) => {
         category: typeof entry.category === "string" ? entry.category : "",
         amount: Math.abs(amount),
         frequency,
-        startDate,
-        endDate,
+        startDate: normalizedStart,
+        endDate: normalizedEnd,
         onDate: typeof entry.onDate === "string" ? entry.onDate : null,
         skipWeekends: Boolean(entry.skipWeekends),
         dayOfWeek: clamp(Number(entry.dayOfWeek ?? 0), 0, 6),
@@ -435,6 +456,18 @@ const firstWeekday = (value, fallback = 0) => {
     if (typeof state.settings.endDate !== "string") {
       if (strict) throw new Error("Invalid settings.endDate");
       state.settings.endDate = base.settings.endDate;
+    }
+    if (!isValidYMDString(state.settings.startDate)) {
+      if (strict) throw new Error("Invalid settings.startDate format");
+      state.settings.startDate = base.settings.startDate;
+    }
+    if (!isValidYMDString(state.settings.endDate)) {
+      if (strict) throw new Error("Invalid settings.endDate format");
+      state.settings.endDate = base.settings.endDate;
+    }
+    if (compareYMD(state.settings.startDate, state.settings.endDate) > 0) {
+      if (strict) throw new Error("Invalid settings date range");
+      state.settings.endDate = state.settings.startDate;
     }
     const sb = Number(state.settings.startingBalance);
     if (Number.isFinite(sb)) {
