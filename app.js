@@ -669,6 +669,7 @@ const shim = {
     const cal = generateCalendar(settings.startDate, settings.endDate);
     const recurring = oneOffs.filter((tx) => tx && typeof tx === "object" && tx.recurring);
     const singles = oneOffs.filter((tx) => tx && typeof tx === "object" && !tx.recurring);
+    let totalStreamIncome = 0;
 
     // Accumulate one-offs by exact date
     const byDate = new Map(cal.map((row) => [row.date, row]));
@@ -705,6 +706,7 @@ const shim = {
           row.income += absAmount;
           const label = describeNameAndCategory(st, "Income Stream");
           row.incomeDetails.push({ source: label, amount: absAmount });
+          totalStreamIncome += absAmount;
         }
         incomeLastOccurrence.set(key, new Date(d.getTime()));
       }
@@ -770,7 +772,25 @@ const shim = {
       totalExpenses += row.expenses;
     }
 
-    return { cal, totalIncome, totalExpenses, endBalance: running };
+    let projectedWeeklyIncome = 0;
+    const startDate = fromYMD(settings.startDate);
+    const endDate = fromYMD(settings.endDate);
+    if (
+      startDate instanceof Date &&
+      endDate instanceof Date &&
+      !Number.isNaN(startDate.getTime()) &&
+      !Number.isNaN(endDate.getTime()) &&
+      endDate >= startDate
+    ) {
+      const MS_PER_DAY = 24 * 60 * 60 * 1000;
+      const totalDays = Math.floor((endDate - startDate) / MS_PER_DAY) + 1;
+      const totalWeeks = totalDays / 7;
+      if (totalWeeks > 0) {
+        projectedWeeklyIncome = totalStreamIncome / totalWeeks;
+      }
+    }
+
+    return { cal, totalIncome, totalExpenses, endBalance: running, projectedWeeklyIncome };
   };
 
   // ---------- Rendering ----------
@@ -1256,12 +1276,14 @@ const shim = {
   let balanceChart;
 
   const renderDashboard = () => {
-    const { cal, totalIncome, totalExpenses, endBalance } = computeProjection(STATE);
+    const { cal, totalIncome, totalExpenses, endBalance, projectedWeeklyIncome } = computeProjection(STATE);
 
     // KPIs
     $("#kpiEndBalance").textContent = fmtMoney(endBalance);
     $("#kpiIncome").textContent = fmtMoney(totalIncome);
     $("#kpiExpenses").textContent = fmtMoney(totalExpenses);
+    const weeklyEl = $("#kpiWeeklyIncome");
+    if (weeklyEl) weeklyEl.textContent = fmtMoney(projectedWeeklyIncome);
 
     // Chart data
     const labels = cal.map((r) => r.date);
