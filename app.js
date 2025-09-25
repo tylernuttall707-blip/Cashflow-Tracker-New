@@ -1193,8 +1193,20 @@ const shim = {
     const labels = cal.map((r) => r.date);
     const data = cal.map((r) => Number(r.running.toFixed(2)));
 
-    const ctx = $("#balanceChart").getContext("2d");
-    if (balanceChart) balanceChart.destroy();
+    const canvasEl = $("#balanceChart");
+    if (!canvasEl) return;
+
+    const existingChart = typeof Chart?.getChart === "function"
+      ? Chart.getChart(canvasEl)
+      : null;
+    if (existingChart) existingChart.destroy();
+
+    if (balanceChart) {
+      balanceChart.destroy();
+      balanceChart = undefined;
+    }
+
+    const ctx = canvasEl.getContext("2d");
     const lineColors = {
       above: "#1b5e20",
       below: "#b71c1c"
