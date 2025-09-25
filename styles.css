@@ -100,6 +100,7 @@ main { padding: 20px 0; display: grid; gap: 16px; }
 .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; box-shadow: 0 12px 24px rgba(17, 25, 40, 0.05); }
 .kpi-label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
 .kpi-value { font-size: 20px; font-weight: 700; }
+.kpi-meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
 
 .table { width: 100%; border-collapse: collapse; }
 .table th, .table td { padding: 10px; border-bottom: 1px solid var(--border); }
