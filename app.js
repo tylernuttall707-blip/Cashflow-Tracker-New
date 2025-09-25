@@ -1195,6 +1195,10 @@ const shim = {
 
     const ctx = $("#balanceChart").getContext("2d");
     if (balanceChart) balanceChart.destroy();
+    const lineColors = {
+      above: "#1b5e20",
+      below: "#b71c1c"
+    };
     balanceChart = new Chart(ctx, {
       type: "line",
       data: {
@@ -1206,6 +1210,25 @@ const shim = {
             tension: 0.25,
             borderWidth: 2,
             pointRadius: 0,
+            borderColor: (ctx) => {
+              const value = ctx.parsed.y;
+              if (Number.isFinite(value) && value < 0) return lineColors.below;
+              return lineColors.above;
+            },
+            segment: {
+              borderColor: (ctx) => {
+                const y0 = ctx.p0.parsed.y;
+                const y1 = ctx.p1.parsed.y;
+                if (y0 >= 0 && y1 >= 0) return lineColors.above;
+                if (y0 <= 0 && y1 <= 0) return lineColors.below;
+                return y1 >= 0 ? lineColors.above : lineColors.below;
+              }
+            },
+            fill: {
+              target: { value: 0 },
+              above: "rgba(27, 94, 32, 0.15)",
+              below: "rgba(183, 28, 28, 0.18)"
+            }
           }
         ]
       },
@@ -1214,7 +1237,19 @@ const shim = {
         plugins: { legend: { display: false } },
         scales: {
           x: { ticks: { maxTicksLimit: 10 } },
-          y: { beginAtZero: false }
+          y: {
+            beginAtZero: false,
+            grid: {
+              color: (ctx) => {
+                const value = ctx.tick && typeof ctx.tick.value === "number" ? ctx.tick.value : null;
+                return value === 0 ? "#0f172a" : "rgba(148, 163, 184, 0.2)";
+              },
+              lineWidth: (ctx) => {
+                const value = ctx.tick && typeof ctx.tick.value === "number" ? ctx.tick.value : null;
+                return value === 0 ? 2 : 1;
+              }
+            }
+          }
         }
       }
     });
