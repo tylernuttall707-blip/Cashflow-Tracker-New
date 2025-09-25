@@ -24,38 +24,39 @@
     return DOW_LABELS[idx] ?? DOW_LABELS[0];
   };
 
-  const normalizeNth = (value) => {
-    if (value === null || value === undefined) return "1";
-    if (typeof value === "string") {
-      const trimmed = value.trim().toLowerCase();
-      if (trimmed === "last") return "last";
-      const parsed = parseInt(trimmed, 10);
-      if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 5) return String(parsed);
-    }
-    if (typeof value === "number" && Number.isFinite(value)) {
-      const int = Math.trunc(value);
-      if (int >= 1 && int <= 5) return String(int);
-    }
-    return "1";
-  };
+// Nth-weekday helpers (safe to keep even if not used yet)
+const normalizeNth = (value) => {
+  if (value === null || value === undefined) return "1";
+  if (typeof value === "string") {
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed === "last") return "last";
+    const parsed = parseInt(trimmed, 10);
+    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 5) return String(parsed);
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const int = Math.trunc(value);
+    if (int >= 1 && int <= 5) return String(int);
+  }
+  return "1";
+};
 
-  const ordinal = (value) => {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return "";
-    const mod100 = num % 100;
-    if (mod100 >= 11 && mod100 <= 13) return `${num}th`;
-    switch (num % 10) {
-      case 1: return `${num}st`;
-      case 2: return `${num}nd`;
-      case 3: return `${num}rd`;
-      default: return `${num}th`;
-    }
-  };
+const ordinal = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "";
+  const mod100 = num % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${num}th`;
+  switch (num % 10) {
+    case 1: return `${num}st`;
+    case 2: return `${num}nd`;
+    case 3: return `${num}rd`;
+    default: return `${num}th`;
+  }
+};
 
-  const describeNth = (nth) => {
-    if (nth === "last") return "last";
-    return ordinal(normalizeNth(nth));
-  };
+const describeNth = (nth) => {
+  const n = normalizeNth(nth);
+  return n === "last" ? "last" : ordinal(Number(n));
+};
 
   const toWeekdayArray = (value) => {
     if (value === undefined || value === null) return [];
@@ -83,13 +84,14 @@
     return days.sort((a, b) => a - b);
   };
 
-  const firstWeekday = (value, fallback = 0) => {
-    const days = toWeekdayArray(value);
-    if (days.length) return days[0];
-    const num = Number(value);
-    if (Number.isFinite(num)) return clamp(Math.trunc(num), 0, 6);
-    return clamp(Number(fallback) || 0, 0, 6);
-  };
+// Weekday pick helper
+const firstWeekday = (value, fallback = 0) => {
+  const days = toWeekdayArray(value);
+  if (days.length) return days[0];
+  const num = Number(value);
+  if (Number.isFinite(num)) return clamp(Math.trunc(num), 0, 6);
+  return clamp(Number(fallback) || 0, 0, 6);
+};
 
   const formatWeekdayList = (value) => {
     const days = toWeekdayArray(value);
@@ -341,70 +343,80 @@
 
   let STATE = load();
 
-  STATE.incomeStreams = (STATE.incomeStreams || []).map((stream) => {
-    if (!stream || typeof stream !== "object") return stream;
-    const next = { ...stream };
-    if (next.dayOfWeek !== undefined) {
-      next.dayOfWeek = toWeekdayArray(next.dayOfWeek);
-    }
-    if (next.monthlyMode === "nth") {
-      next.nthWeek = normalizeNth(next.nthWeek);
-      next.nthWeekday = firstWeekday(next.nthWeekday ?? next.dayOfWeek ?? 0, 0);
-    }
-    return next;
-  });
+STATE.incomeStreams = (STATE.incomeStreams || []).map((stream) => {
+  if (!stream || typeof stream !== "object") return stream;
 
-  STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
-    if (!tx || typeof tx !== "object") return tx;
-    const next = { ...tx };
-    if (next.dayOfWeek !== undefined) {
-      next.dayOfWeek = toWeekdayArray(next.dayOfWeek);
-    }
-    if (next.monthlyMode === "nth") {
-      next.nthWeek = normalizeNth(next.nthWeek);
-      next.nthWeekday = firstWeekday(next.nthWeekday ?? next.dayOfWeek ?? 0, 0);
-    }
-    return next;
-  });
+  // Copy and normalize fields
+  const next = { ...stream };
 
-  // ---------- Recurrence engine ----------
-  const isBetween = (d, start, end) => d >= start && d <= end;
+  // dayOfWeek can be a single number or array/string → normalize to array [0..6]
+  if (next.dayOfWeek !== undefined) {
+    next.dayOfWeek = toWeekdayArray(next.dayOfWeek);
+  }
 
-  const lastDayOfMonth = (y, mIndex) => new Date(y, mIndex + 1, 0).getDate(); // 0 => last day prev month
-  const occursMonthly = (date, dayOfMonth) => {
-    const ld = lastDayOfMonth(date.getFullYear(), date.getMonth());
-    const target = clamp(dayOfMonth, 1, ld);
-    return date.getDate() === target;
-  };
+  // Support monthly "nth weekday" mode for streams only
+  if (next.monthlyMode === "nth") {
+    next.nthWeek = normalizeNth(next.nthWeek); // "1".."5" or "last"
+    // If nthWeekday missing, default to first value from dayOfWeek or Sunday (0)
+    next.nthWeekday = firstWeekday(next.nthWeekday ?? next.dayOfWeek ?? 0, 0);
+  }
 
-  const occursNthWeekday = (date, nth, weekday) => {
-    const nthValue = normalizeNth(nth);
-    const targetDow = firstWeekday(weekday, 0);
-    const firstOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
-    const firstDow = firstOfMonth.getDay();
-    const firstOccurrenceDay = 1 + ((targetDow - firstDow + 7) % 7);
-    const occurrences = [];
-    const lastDay = lastDayOfMonth(date.getFullYear(), date.getMonth());
-    for (let i = 0; i < 6; i += 1) {
-      const day = firstOccurrenceDay + i * 7;
-      if (day > lastDay) break;
-      occurrences.push(day);
-    }
-    if (!occurrences.length) return false;
-    if (nthValue === "last") {
-      return date.getDate() === occurrences[occurrences.length - 1];
-    }
-    const idx = Number(nthValue) - 1;
-    if (!Number.isFinite(idx) || idx < 0) return false;
-    if (idx >= occurrences.length) return false;
-    return date.getDate() === occurrences[idx];
-  };
+  return next;
+});
 
-  const occursWeeklyOn = (date, weekdays) => {
-    const days = toWeekdayArray(weekdays);
-    if (!days.length) return false;
-    return days.includes(date.getDay());
-  };
+STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
+  if (!tx || typeof tx !== "object") return tx;
+
+  // Keep one-offs simple; normalize dayOfWeek only if present (harmless for old data)
+  if (tx.dayOfWeek !== undefined) {
+    return { ...tx, dayOfWeek: toWeekdayArray(tx.dayOfWeek) };
+  }
+  return tx;
+});
+
+
+// ---------- Recurrence engine ----------
+const isBetween = (d, start, end) => d >= start && d <= end;
+
+const lastDayOfMonth = (y, mIndex) => new Date(y, mIndex + 1, 0).getDate(); // 0 => last day prev month
+const occursMonthly = (date, dayOfMonth) => {
+  const ld = lastDayOfMonth(date.getFullYear(), date.getMonth());
+  const target = clamp(dayOfMonth, 1, ld);
+  return date.getDate() === target;
+};
+
+// NEW: "nth weekday of month" matcher (e.g., 3rd Fri, last Wed)
+const occursNthWeekday = (date, nth, weekday) => {
+  const nthValue = normalizeNth(nth);            // "1".."5" or "last"
+  const targetDow = firstWeekday(weekday, 0);    // 0..6
+  const firstOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+  const firstDow = firstOfMonth.getDay();
+  const firstOccurrenceDay = 1 + ((targetDow - firstDow + 7) % 7);
+
+  const occurrences = [];
+  const lastDay = lastDayOfMonth(date.getFullYear(), date.getMonth());
+  for (let i = 0; i < 6; i += 1) {
+    const day = firstOccurrenceDay + i * 7;
+    if (day > lastDay) break;
+    occurrences.push(day);
+  }
+  if (!occurrences.length) return false;
+
+  if (nthValue === "last") {
+    return date.getDate() === occurrences[occurrences.length - 1];
+  }
+  const idx = Number(nthValue) - 1;
+  if (!Number.isFinite(idx) || idx < 0) return false;
+  if (idx >= occurrences.length) return false;
+  return date.getDate() === occurrences[idx];
+};
+
+const occursWeeklyOn = (date, weekdays) => {
+  const days = toWeekdayArray(weekdays);
+  if (!days.length) return false;
+  return days.includes(date.getDay());
+};
+
 
   const occursBiweeklyOn = (date, weekdays, startDate) => {
     const days = toWeekdayArray(weekdays);
@@ -455,18 +467,18 @@
 
     if (!tx.frequency || !tx.startDate || !tx.endDate) return false;
 
-    const shim = {
-      frequency: tx.frequency,
-      startDate: tx.startDate,
-      endDate: tx.endDate,
-      onDate: tx.onDate || null,
-      skipWeekends: Boolean(tx.skipWeekends),
-      dayOfWeek: toWeekdayArray(tx.dayOfWeek),
-      dayOfMonth: Number(tx.dayOfMonth ?? 1),
-      monthlyMode: tx.monthlyMode === "nth" ? "nth" : "day",
-      nthWeek: tx.nthWeek,
-      nthWeekday: firstWeekday(tx.nthWeekday ?? tx.dayOfWeek ?? 0, 0),
-    };
+const shim = {
+  frequency: tx.frequency,
+  startDate: tx.startDate,
+  endDate: tx.endDate,
+  onDate: tx.onDate || null,
+  skipWeekends: Boolean(tx.skipWeekends),
+  dayOfWeek: toWeekdayArray(tx.dayOfWeek),                 // normalize to [0..6]
+  dayOfMonth: Number(tx.dayOfMonth ?? 1),
+  monthlyMode: tx.monthlyMode === "nth" ? "nth" : "day",   // supports “nth weekday”
+  nthWeek: normalizeNth(tx.nthWeek),                       // "1".."5" or "last"
+  nthWeekday: firstWeekday(tx.nthWeekday ?? tx.dayOfWeek ?? 0, 0), // picks a valid DOW
+};
 
     return shouldApplyStreamOn(date, shim);
   };
@@ -865,6 +877,7 @@
             const list = formatWeekdayList(st.dayOfWeek);
             return list ? `Every 2 weeks on ${list}` : "Every 2 weeks (no days selected)";
           }
+
           case "monthly": return describeMonthlySchedule(st);
           default: return "";
         }
