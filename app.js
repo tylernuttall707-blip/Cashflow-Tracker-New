@@ -777,6 +777,48 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     return "Receivable";
   };
 
+  const isEmptyCell = (value) => {
+    if (value === null || value === undefined) return true;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return true;
+      if (/^[-–—]+$/.test(trimmed)) return true;
+      return false;
+    }
+    return false;
+  };
+
+  const isAgingBucketHeader = (header) => {
+    const raw = String(header ?? "").trim();
+    if (!raw) return false;
+    const lower = raw.toLowerCase();
+    if (lower.includes("aging total")) return false;
+    const norm = normalizeHeaderLabel(raw);
+    if (!norm) return false;
+    if (norm === "current" || norm.startsWith("current ")) return true;
+    if (lower.includes("current") && !lower.includes("currency")) return true;
+    if (!norm.includes("day")) return false;
+    const matches = norm.match(/\b(\d{1,3})\b/g);
+    if (!matches || !matches.length) return false;
+    return matches.some((token) => {
+      const num = Number(token);
+      return Number.isFinite(num) && num >= 0 && num <= 365;
+    });
+  };
+
+  const detectAgingBucketColumns = (rows) => {
+    const seen = new Set();
+    for (const item of rows) {
+      if (!item || typeof item.values !== "object") continue;
+      for (const header of Object.keys(item.values)) {
+        if (isAgingBucketHeader(header)) {
+          seen.add(header);
+        }
+      }
+    }
+    return Array.from(seen);
+  };
+
   const normalizeCompanyKey = (value) => {
     if (value === null || value === undefined) return "";
     return String(value).trim().toUpperCase();
@@ -1031,6 +1073,8 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     const rows = [];
     let skipped = 0;
     const totalsRegex = /^(total|subtotal|aging|bucket)/i;
+    const bucketColumns = detectAgingBucketColumns(rawRows);
+    let currentCompany = "";
     for (const item of rawRows) {
       if (!item || typeof item.values !== "object") {
         skipped += 1;
@@ -1049,8 +1093,34 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
       const termsRaw = aux.terms ? raw[aux.terms] : undefined;
       const invoiceDateRaw = aux.invoiceDate ? raw[aux.invoiceDate] : undefined;
 
-      const company = String(companyRaw ?? "").trim();
+      let company = String(companyRaw ?? "").trim();
+      if (company) currentCompany = company;
       const invoice = String(invoiceRaw ?? "").trim();
+
+      const bucketValues = bucketColumns.map((column) => ({
+        column,
+        raw: raw[column],
+        number: parseCurrency(raw[column]),
+      }));
+      const bucketHasAny = bucketValues.some((entry) => !isEmptyCell(entry.raw));
+      const bucketSum = bucketValues.reduce(
+        (total, entry) => (Number.isFinite(entry.number) ? total + entry.number : total),
+        0
+      );
+      const bucketHasNonZero = bucketValues.some((entry) => Number.isFinite(entry.number) && entry.number !== 0);
+
+      const hasDueRaw = !isEmptyCell(dueRaw);
+      const hasMappedAmountRaw = !isEmptyCell(amountRaw);
+
+      if (!company && invoice && !hasDueRaw && !hasMappedAmountRaw && !bucketHasAny) {
+        currentCompany = invoice;
+        continue;
+      }
+
+      if (!company && currentCompany) {
+        company = currentCompany;
+      }
+
       let dueDate = parseExcelOrISODate(dueRaw);
       const invoiceDate = parseExcelOrISODate(invoiceDateRaw);
       if (!dueDate) {
@@ -1059,7 +1129,13 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
           dueDate = addDays(invoiceDate, netDays);
         }
       }
-      const baseAmount = parseCurrency(amountRaw);
+
+      let baseAmount = parseCurrency(amountRaw);
+      const hasMappedAmount = Number.isFinite(baseAmount) && baseAmount !== 0;
+      const hasBucketAmount = bucketColumns.length > 0 && (bucketHasNonZero || (!hasMappedAmount && bucketHasAny));
+      if (hasBucketAmount) {
+        baseAmount = bucketSum;
+      }
 
       if (!company || !invoice || !dueDate || !Number.isFinite(baseAmount) || baseAmount === 0) {
         skipped += 1;
