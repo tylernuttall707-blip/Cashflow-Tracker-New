@@ -78,6 +78,8 @@ main { padding: 20px 0; display: grid; gap: 16px; }
 
 .form .field { display:flex; flex-direction:column; gap:6px; }
 .form .actions { display:flex; gap:10px; align-items:center; }
+.inline-group { display:flex; gap:8px; }
+.inline-group select { flex:1; }
 .form input, .form select, .form textarea {
   background: var(--panel); border: 1px solid var(--border); color: var(--text);
   padding: 9px 10px; border-radius: 10px; outline: none; transition: border-color 0.2s ease, box-shadow 0.2s ease;

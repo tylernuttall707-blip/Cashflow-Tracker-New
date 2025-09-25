@@ -180,8 +180,37 @@
               </select>
             </div>
             <div class="field tx-recurring-only tx-freq-only tx-freq-monthly hidden">
+              <label for="ooMonthlyMode">Monthly Schedule</label>
+              <select id="ooMonthlyMode" data-monthly-mode>
+                <option value="day" selected>On specific day</option>
+                <option value="nth">On nth weekday</option>
+              </select>
+            </div>
+            <div class="field tx-recurring-only tx-freq-only tx-freq-monthly monthly-mode monthly-mode-day hidden">
               <label for="ooDOM">Day of Month</label>
               <input id="ooDOM" type="number" min="1" max="31" value="1" />
+            </div>
+            <div class="field tx-recurring-only tx-freq-only tx-freq-monthly monthly-mode monthly-mode-nth hidden">
+              <label for="ooNthWeek">Weekday Pattern</label>
+              <div class="inline-group">
+                <select id="ooNthWeek">
+                  <option value="1">1st</option>
+                  <option value="2">2nd</option>
+                  <option value="3">3rd</option>
+                  <option value="4">4th</option>
+                  <option value="5">5th</option>
+                  <option value="last">Last</option>
+                </select>
+                <select id="ooNthWeekday">
+                  <option value="0">Sun</option>
+                  <option value="1">Mon</option>
+                  <option value="2">Tue</option>
+                  <option value="3">Wed</option>
+                  <option value="4">Thu</option>
+                  <option value="5">Fri</option>
+                  <option value="6">Sat</option>
+                </select>
+              </div>
             </div>
             <div class="actions">
               <button class="btn" type="submit">Add</button>
@@ -255,8 +284,37 @@
 
           <!-- Monthly -->
           <div class="field freq-only freq-monthly">
+            <label for="stMonthlyMode">Monthly Schedule</label>
+            <select id="stMonthlyMode" data-monthly-mode>
+              <option value="day" selected>On specific day</option>
+              <option value="nth">On nth weekday</option>
+            </select>
+          </div>
+          <div class="field freq-only freq-monthly monthly-mode monthly-mode-day">
             <label for="stDOM">Day of Month</label>
             <input id="stDOM" type="number" min="1" max="31" value="1" />
+          </div>
+          <div class="field freq-only freq-monthly monthly-mode monthly-mode-nth">
+            <label for="stNthWeek">Weekday Pattern</label>
+            <div class="inline-group">
+              <select id="stNthWeek">
+                <option value="1">1st</option>
+                <option value="2">2nd</option>
+                <option value="3">3rd</option>
+                <option value="4">4th</option>
+                <option value="5">5th</option>
+                <option value="last">Last</option>
+              </select>
+              <select id="stNthWeekday">
+                <option value="0">Sun</option>
+                <option value="1">Mon</option>
+                <option value="2">Tue</option>
+                <option value="3">Wed</option>
+                <option value="4">Thu</option>
+                <option value="5">Fri</option>
+                <option value="6">Sat</option>
+              </select>
+            </div>
           </div>
 
           <div class="field">
