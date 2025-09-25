@@ -1378,7 +1378,7 @@ const shim = {
     });
 
     $("#pdfBtn").addEventListener("click", () => {
-      const jsPDF = window.jspdf?.jsPDF;
+      const jsPDF = window.jspdf?.jsPDF || window.jsPDF;
       if (typeof jsPDF !== "function") {
         alert("PDF generator not available.");
         return;
