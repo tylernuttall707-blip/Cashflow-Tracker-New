@@ -17,6 +17,14 @@
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
   const uid = () => Math.random().toString(36).slice(2, 9);
   const compareYMD = (a, b) => String(a || "").localeCompare(String(b || ""));
+  const describeNameAndCategory = (entry, fallback) => {
+    if (!entry || typeof entry !== "object") return fallback;
+    const parts = [];
+    if (entry.name) parts.push(entry.name);
+    if (entry.category) parts.push(entry.category);
+    if (!parts.length && entry.note) parts.push(entry.note);
+    return parts.join(" – ") || fallback;
+  };
   const monthsBetween = (prev, next) => {
     if (!prev || !next) return 0;
     const months = (next.getFullYear() - prev.getFullYear()) * 12 + (next.getMonth() - prev.getMonth());
@@ -643,7 +651,15 @@ const shim = {
     const end = fromYMD(endYMD);
     const days = [];
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      days.push({ date: toYMD(d), income: 0, expenses: 0, net: 0, running: 0 });
+      days.push({
+        date: toYMD(d),
+        income: 0,
+        expenses: 0,
+        net: 0,
+        running: 0,
+        incomeDetails: [],
+        expenseDetails: [],
+      });
     }
     return days;
   };
@@ -662,8 +678,15 @@ const shim = {
       if (!row) continue;
       const amt = Number(tx.amount || 0);
       if (!amt) continue;
-      if (tx.type === "expense") row.expenses += Math.abs(amt);
-      else row.income += Math.abs(amt);
+      const absAmt = Math.abs(amt);
+      const label = describeNameAndCategory(tx, tx.type === "expense" ? "Expense" : "Income");
+      if (tx.type === "expense") {
+        row.expenses += absAmt;
+        row.expenseDetails.push({ source: label, amount: absAmt });
+      } else {
+        row.income += absAmt;
+        row.incomeDetails.push({ source: label, amount: absAmt });
+      }
     }
 
     // Apply recurring income streams
@@ -678,7 +701,10 @@ const shim = {
         const prev = incomeLastOccurrence.get(key) || null;
         const amount = resolveRecurringAmount(st, d, prev);
         if (amount) {
-          row.income += Math.abs(amount);
+          const absAmount = Math.abs(amount);
+          row.income += absAmount;
+          const label = describeNameAndCategory(st, "Income Stream");
+          row.incomeDetails.push({ source: label, amount: absAmount });
         }
         incomeLastOccurrence.set(key, new Date(d.getTime()));
       }
@@ -698,8 +724,15 @@ const shim = {
           const prev = txLastOccurrence.get(key) || null;
           const amount = resolveRecurringAmount(tx, d, prev);
           if (amount) {
-            if (tx.type === "expense") row.expenses += Math.abs(amount);
-            else row.income += Math.abs(amount);
+            const absAmount = Math.abs(amount);
+            const label = describeNameAndCategory(tx, tx.type === "expense" ? "Expense" : "Income");
+            if (tx.type === "expense") {
+              row.expenses += absAmount;
+              row.expenseDetails.push({ source: label, amount: absAmount });
+            } else {
+              row.income += absAmount;
+              row.incomeDetails.push({ source: label, amount: absAmount });
+            }
           }
           txLastOccurrence.set(key, new Date(d.getTime()));
         }
@@ -711,8 +744,16 @@ const shim = {
       const row = byDate.get(adj.date);
       if (row) {
         const amt = Number(adj.amount || 0);
-        if (amt >= 0) row.income += amt;
-        else row.expenses += Math.abs(amt);
+        if (amt >= 0) {
+          row.income += amt;
+          const label = adj.note ? `Adjustment – ${adj.note}` : "Adjustment";
+          row.incomeDetails.push({ source: label, amount: amt });
+        } else {
+          const absAmt = Math.abs(amt);
+          row.expenses += absAmt;
+          const label = adj.note ? `Adjustment – ${adj.note}` : "Adjustment";
+          row.expenseDetails.push({ source: label, amount: absAmt });
+        }
       }
     }
 
@@ -1334,6 +1375,67 @@ const shim = {
       a.download = "cashflow-2025.json";
       a.click();
       URL.revokeObjectURL(url);
+    });
+
+    $("#pdfBtn").addEventListener("click", () => {
+      const jsPDF = window.jspdf?.jsPDF;
+      if (typeof jsPDF !== "function") {
+        alert("PDF generator not available.");
+        return;
+      }
+
+      const { cal } = computeProjection(STATE);
+      const startYMD = todayYMD;
+      const end = fromYMD(startYMD);
+      end.setDate(end.getDate() + 29);
+      const endYMD = toYMD(end);
+      const next30 = cal.filter((row) => compareYMD(row.date, startYMD) >= 0 && compareYMD(row.date, endYMD) <= 0);
+
+      if (!next30.length) {
+        alert("No projection data for the next 30 days.");
+        return;
+      }
+
+      const doc = new jsPDF({ orientation: "landscape" });
+      if (typeof doc.autoTable !== "function") {
+        alert("PDF table plugin not available.");
+        return;
+      }
+      doc.setFontSize(16);
+      doc.text("Next 30 Days Cash Flow", 14, 15);
+      doc.setFontSize(10);
+      doc.text(`Generated on ${startYMD}`, 14, 22);
+
+      const tableBody = next30.map((row) => {
+        const incomeDetails = Array.isArray(row.incomeDetails) && row.incomeDetails.length
+          ? row.incomeDetails.map((item) => `${item.source}: ${fmtMoney(item.amount)}`).join("\n")
+          : "—";
+        const expenseDetails = Array.isArray(row.expenseDetails) && row.expenseDetails.length
+          ? row.expenseDetails.map((item) => `${item.source}: ${fmtMoney(item.amount)}`).join("\n")
+          : "—";
+        return [
+          row.date,
+          fmtMoney(row.income),
+          incomeDetails,
+          fmtMoney(row.expenses),
+          expenseDetails,
+          fmtMoney(row.running),
+        ];
+      });
+
+      doc.autoTable({
+        startY: 28,
+        head: [["Date", "Income", "Income Sources", "Expenses", "Expense Sources", "Bank Balance"]],
+        body: tableBody,
+        styles: { valign: "top", fontSize: 9 },
+        columnStyles: {
+          2: { cellWidth: 70 },
+          4: { cellWidth: 70 },
+        },
+        headStyles: { fillColor: [15, 23, 42] },
+      });
+
+      doc.save(`cashflow-next-30-days-${startYMD}.pdf`);
     });
 
     const dlg = $("#importDialog");
