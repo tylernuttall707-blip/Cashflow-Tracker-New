@@ -1223,14 +1223,15 @@ const shim = {
             borderWidth: 2,
             pointRadius: 0,
             borderColor: (ctx) => {
-              const value = ctx.parsed.y;
+              const value = ctx?.parsed?.y;
               if (Number.isFinite(value) && value < 0) return lineColors.below;
               return lineColors.above;
             },
             segment: {
               borderColor: (ctx) => {
-                const y0 = ctx.p0.parsed.y;
-                const y1 = ctx.p1.parsed.y;
+                const y0 = ctx?.p0?.parsed?.y;
+                const y1 = ctx?.p1?.parsed?.y;
+                if (!Number.isFinite(y0) || !Number.isFinite(y1)) return lineColors.above;
                 if (y0 >= 0 && y1 >= 0) return lineColors.above;
                 if (y0 <= 0 && y1 <= 0) return lineColors.below;
                 return y1 >= 0 ? lineColors.above : lineColors.below;
