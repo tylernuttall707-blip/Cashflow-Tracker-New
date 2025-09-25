@@ -16,6 +16,73 @@
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
   const uid = () => Math.random().toString(36).slice(2, 9);
+  const compareYMD = (a, b) => String(a || "").localeCompare(String(b || ""));
+  const monthsBetween = (prev, next) => {
+    if (!prev || !next) return 0;
+    const months = (next.getFullYear() - prev.getFullYear()) * 12 + (next.getMonth() - prev.getMonth());
+    return Math.max(0, months);
+  };
+
+  const getBaseAmountForDate = (entry, date) => {
+    const base = Number(entry.amount || 0);
+    if (!Array.isArray(entry.steps) || !entry.steps.length) return base;
+    const target = toYMD(date);
+    let current = base;
+    for (const step of entry.steps) {
+      const eff = typeof step?.effectiveFrom === "string" ? step.effectiveFrom : null;
+      if (!eff || compareYMD(eff, target) > 0) break;
+      const amt = Number(step.amount || 0);
+      if (!Number.isFinite(amt)) continue;
+      current = Math.abs(amt);
+    }
+    return current;
+  };
+
+  const resolveRecurringAmount = (entry, date, prevDate) => {
+    const baseAmount = Math.abs(Number(getBaseAmountForDate(entry, date) || 0));
+    if (!baseAmount) return 0;
+    const escalatorPct = Number(entry.escalatorPct || 0);
+    if (!prevDate || !Number.isFinite(escalatorPct) || escalatorPct === 0) {
+      return baseAmount;
+    }
+    const steps = monthsBetween(prevDate, date);
+    if (!steps) return baseAmount;
+    const factor = Math.pow(1 + escalatorPct / 100, steps);
+    return baseAmount * factor;
+  };
+
+  const getNextOccurrence = (entry, fromDateYMD = todayYMD) => {
+    if (!entry || typeof entry !== "object") return null;
+    const isRecurring = Boolean(entry.recurring || entry.repeats || entry.frequency);
+    if (!isRecurring) {
+      const date = typeof entry.date === "string" ? entry.date : null;
+      if (!date || compareYMD(date, fromDateYMD) < 0) return null;
+      const amount = Math.abs(Number(entry.amount || 0));
+      if (!Number.isFinite(amount)) return null;
+      return { date, amount };
+    }
+
+    const startDate = typeof entry.startDate === "string" ? entry.startDate : typeof entry.date === "string" ? entry.date : null;
+    const endDate = typeof entry.endDate === "string" ? entry.endDate : typeof entry.date === "string" ? entry.date : null;
+    if (!startDate || !endDate) return null;
+
+    const start = fromYMD(startDate);
+    const end = fromYMD(endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return null;
+
+    let prev = null;
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      if (!shouldApplyStreamOn(d, entry)) continue;
+      const occYMD = toYMD(d);
+      const amount = resolveRecurringAmount(entry, d, prev);
+      if (compareYMD(occYMD, fromDateYMD) >= 0) {
+        return { date: occYMD, amount: Math.abs(amount) };
+      }
+      prev = new Date(d.getTime());
+    }
+
+    return null;
+  };
   const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const getDOWLabel = (value) => {
     const n = Number(value);
@@ -78,6 +145,20 @@
     ensureArray("oneOffs");
     ensureArray("incomeStreams");
 
+    const sanitizeSteps = (value) => {
+      if (!Array.isArray(value)) return [];
+      return value
+        .map((step) => {
+          if (!step || typeof step !== "object" || Array.isArray(step)) return null;
+          const effectiveFrom = typeof step.effectiveFrom === "string" ? step.effectiveFrom : null;
+          const amount = Number(step.amount || 0);
+          if (!effectiveFrom || !Number.isFinite(amount)) return null;
+          return { effectiveFrom, amount: Math.abs(amount) };
+        })
+        .filter((step) => step !== null)
+        .sort((a, b) => compareYMD(a.effectiveFrom, b.effectiveFrom));
+    };
+
     const sanitizeOneOff = (entry) => {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
         if (strict) throw new Error("Invalid one-off record");
@@ -102,6 +183,9 @@
       };
 
       if (entry.note !== undefined) result.note = entry.note;
+      result.steps = sanitizeSteps(entry.steps);
+      const escalator = Number(entry.escalatorPct || 0);
+      result.escalatorPct = Number.isFinite(escalator) ? escalator : 0;
 
       if (result.recurring) {
         const frequency = typeof entry.frequency === "string" ? entry.frequency : null;
@@ -131,6 +215,8 @@
           return null;
         }
         result.date = date;
+        result.steps = [];
+        result.escalatorPct = 0;
       }
 
       return result;
@@ -142,6 +228,63 @@
         .filter((item) => item !== null);
 
     state.oneOffs = sanitizeList(state.oneOffs);
+
+    const sanitizeStream = (entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        if (strict) throw new Error("Invalid income stream record");
+        return null;
+      }
+
+      const amount = Number(entry.amount || 0);
+      if (!Number.isFinite(amount)) {
+        if (strict) throw new Error("Invalid income stream amount");
+        return null;
+      }
+
+      const frequency = typeof entry.frequency === "string" ? entry.frequency : "once";
+      const startDate = typeof entry.startDate === "string" ? entry.startDate : typeof entry.onDate === "string" ? entry.onDate : null;
+      const endDate = typeof entry.endDate === "string" ? entry.endDate : typeof entry.onDate === "string" ? entry.onDate : null;
+      if (!startDate || !endDate) {
+        if (strict) throw new Error("Invalid income stream date range");
+        return null;
+      }
+
+      const id = typeof entry.id === "string" ? entry.id : uid();
+      const stream = {
+        id,
+        name: typeof entry.name === "string" ? entry.name : "",
+        category: typeof entry.category === "string" ? entry.category : "",
+        amount: Math.abs(amount),
+        frequency,
+        startDate,
+        endDate,
+        onDate: typeof entry.onDate === "string" ? entry.onDate : null,
+        skipWeekends: Boolean(entry.skipWeekends),
+        dayOfWeek: clamp(Number(entry.dayOfWeek ?? 0), 0, 6),
+        dayOfMonth: clamp(Number(entry.dayOfMonth ?? 1), 1, 31),
+        steps: sanitizeSteps(entry.steps),
+        escalatorPct: Number.isFinite(Number(entry.escalatorPct || 0)) ? Number(entry.escalatorPct || 0) : 0,
+      };
+
+      if (frequency === "once") {
+        stream.onDate = typeof entry.onDate === "string" ? entry.onDate : stream.startDate;
+      }
+      if (frequency === "daily") {
+        stream.skipWeekends = Boolean(entry.skipWeekends);
+      }
+      if (frequency === "weekly" || frequency === "biweekly") {
+        stream.dayOfWeek = clamp(Number(entry.dayOfWeek ?? 0), 0, 6);
+      }
+      if (frequency === "monthly") {
+        stream.dayOfMonth = clamp(Number(entry.dayOfMonth ?? 1), 1, 31);
+      }
+
+      return stream;
+    };
+
+    state.incomeStreams = state.incomeStreams
+      .map((entry) => sanitizeStream(entry))
+      .filter((entry) => entry !== null);
 
     const legacyExpenses = Array.isArray(raw.expenseStreams) ? raw.expenseStreams : [];
     if (legacyExpenses.length) {
@@ -306,29 +449,41 @@
     }
 
     // Apply recurring income streams
+    const incomeLastOccurrence = new Map();
     for (const st of incomeStreams) {
-      const amount = Number(st.amount || 0);
-      if (!amount) continue;
+      if (!st || typeof st !== "object") continue;
+      const streamId = typeof st.id === "string" ? st.id : (st.id = uid());
+      const key = `stream:${streamId}`;
       for (const row of cal) {
         const d = fromYMD(row.date);
-        if (shouldApplyStreamOn(d, st)) {
-          row.income += amount;
+        if (!shouldApplyStreamOn(d, st)) continue;
+        const prev = incomeLastOccurrence.get(key) || null;
+        const amount = resolveRecurringAmount(st, d, prev);
+        if (amount) {
+          row.income += Math.abs(amount);
         }
+        incomeLastOccurrence.set(key, new Date(d.getTime()));
       }
     }
 
     // Apply recurring one-offs
+    const txLastOccurrence = new Map();
     for (const tx of recurring) {
-      const amount = Number(tx.amount || 0);
-      if (!amount) continue;
       if (typeof tx.startDate !== "string" || typeof tx.endDate !== "string" || typeof tx.frequency !== "string") {
         continue;
       }
+      const txId = typeof tx.id === "string" ? tx.id : (tx.id = uid());
+      const key = `tx:${txId}`;
       for (const row of cal) {
         const d = fromYMD(row.date);
         if (shouldApplyStreamOn(d, tx)) {
-          if (tx.type === "expense") row.expenses += Math.abs(amount);
-          else row.income += Math.abs(amount);
+          const prev = txLastOccurrence.get(key) || null;
+          const amount = resolveRecurringAmount(tx, d, prev);
+          if (amount) {
+            if (tx.type === "expense") row.expenses += Math.abs(amount);
+            else row.income += Math.abs(amount);
+          }
+          txLastOccurrence.set(key, new Date(d.getTime()));
         }
       }
     }
@@ -439,7 +594,7 @@
   const describeTransactionSchedule = (tx) => {
     if (!tx || typeof tx !== "object") return "—";
 
-    const repeats = Boolean(tx.repeats ?? tx.recurring);
+    const repeats = Boolean(tx.repeats ?? tx.recurring ?? tx.frequency);
     if (!repeats) return "—";
 
     const frequency = tx.frequency;
@@ -449,24 +604,39 @@
     const end = tx.endDate || tx.date || null;
     const range = start && end ? ` (${start} → ${end})` : "";
 
+    let desc = "";
     switch (frequency) {
       case "daily":
-        return `Daily${tx.skipWeekends ? " (M–F)" : ""}${range}`;
+        desc = `Daily${tx.skipWeekends ? " (M–F)" : ""}${range}`;
+        break;
       case "weekly":
-        return `Weekly on ${getDOWLabel(tx.dayOfWeek)}${range}`;
+        desc = `Weekly on ${getDOWLabel(tx.dayOfWeek)}${range}`;
+        break;
       case "biweekly":
-        return `Every 2 weeks on ${getDOWLabel(tx.dayOfWeek)}${range}`;
+        desc = `Every 2 weeks on ${getDOWLabel(tx.dayOfWeek)}${range}`;
+        break;
       case "monthly": {
         const day = clamp(Number(tx.dayOfMonth ?? 1), 1, 31);
-        return `Monthly on day ${day}${range}`;
+        desc = `Monthly on day ${day}${range}`;
+        break;
       }
       case "once": {
         const when = tx.onDate || tx.date || start;
-        return when ? `On ${when}` : "Once";
+        desc = when ? `On ${when}` : "Once";
+        break;
       }
       default:
-        return `Repeats${range}`;
+        desc = `Repeats${range}`;
+        break;
     }
+
+    const extras = [];
+    if (Array.isArray(tx.steps) && tx.steps.length) extras.push("stepped");
+    const escalator = Number(tx.escalatorPct || 0);
+    if (escalator) extras.push(`${escalator}% escalator`);
+    if (extras.length) desc += ` [${extras.join(", ")}]`;
+
+    return desc;
   };
 
   const renderOneOffs = () => {
@@ -478,7 +648,11 @@
       .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
     for (const tx of rows) {
-      const amt = Number(tx.amount || 0);
+      const nextLabel = (() => {
+        const next = getNextOccurrence(tx, todayYMD);
+        if (!next) return "—";
+        return `${fmtMoney(next.amount)} (${next.date})`;
+      })();
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${tx.date || ""}</td>
@@ -486,7 +660,7 @@
         <td>${tx.type || ""}</td>
         <td>${tx.name || ""}</td>
         <td>${tx.category || ""}</td>
-        <td class="num">${fmtMoney(amt)}</td>
+        <td class="num">${nextLabel}</td>
         <td><button class="link" data-id="${tx.id}" data-act="delOneOff">Delete</button></td>
       `;
       tbody.appendChild(tr);
@@ -521,11 +695,66 @@
     }
   };
 
+  const addStepRow = (root, data = {}) => {
+    if (!root) return;
+    const tbody = root.querySelector("tbody");
+    if (!tbody) return;
+    const tr = document.createElement("tr");
+    tr.className = "step-row";
+    const effectiveFrom = typeof data.effectiveFrom === "string" ? data.effectiveFrom : "";
+    const amountValue = data.amount !== undefined && data.amount !== null ? Number(data.amount) : "";
+    tr.innerHTML = `
+      <td><input type="date" class="step-date" value="${effectiveFrom}" /></td>
+      <td class="num"><input type="number" class="step-amount" step="0.01" value="${amountValue === "" ? "" : amountValue}" /></td>
+      <td><button type="button" class="link" data-act="removeStep">Remove</button></td>
+    `;
+    tbody.appendChild(tr);
+  };
+
+  const collectStepRows = (root) => {
+    if (!root) return [];
+    const rows = $$(".step-row", root);
+    return rows
+      .map((row) => {
+        const date = $(".step-date", row)?.value;
+        const amountRaw = $(".step-amount", row)?.value;
+        if (!date || amountRaw === undefined || amountRaw === null || amountRaw === "") return null;
+        const amount = Number(amountRaw);
+        if (!Number.isFinite(amount)) return null;
+        return { effectiveFrom: date, amount: Math.abs(amount) };
+      })
+      .filter((step) => step !== null)
+      .sort((a, b) => compareYMD(a.effectiveFrom, b.effectiveFrom));
+  };
+
+  const clearStepRows = (root) => {
+    if (!root) return;
+    const tbody = root.querySelector("tbody");
+    if (tbody) tbody.innerHTML = "";
+  };
+
+  const initStepEditor = (root) => {
+    if (!root) return;
+    root.addEventListener("click", (e) => {
+      const removeBtn = e.target.closest("button[data-act='removeStep']");
+      if (removeBtn) {
+        removeBtn.closest(".step-row")?.remove();
+        return;
+      }
+      const addBtn = e.target.closest("button[data-act='addStep']");
+      if (addBtn) {
+        addStepRow(root);
+      }
+    });
+  };
+
   const bindOneOffs = () => {
     const form = $("#oneOffForm");
     const freqSel = $("#ooFreq");
     const repeatsToggle = $("#ooRepeats");
     if (!form || !freqSel || !repeatsToggle) return;
+
+    initStepEditor($("#ooStepEditor"));
 
     repeatsToggle.addEventListener("change", showTransactionFreqBlocks);
     freqSel.addEventListener("change", showTransactionFreqBlocks);
@@ -580,6 +809,13 @@
         if (frequency === "monthly") {
           entry.dayOfMonth = clamp(Number($("#ooDOM").value || 1), 1, 31);
         }
+
+        entry.steps = collectStepRows($("#ooStepEditor"));
+        const escalatorRaw = Number($("#ooEscalator").value || 0);
+        entry.escalatorPct = Number.isFinite(escalatorRaw) ? escalatorRaw : 0;
+      } else {
+        entry.steps = [];
+        entry.escalatorPct = 0;
       }
 
       STATE.oneOffs.push(entry);
@@ -587,6 +823,8 @@
       save(STATE);
       form.reset();
       showTransactionFreqBlocks();
+      clearStepRows($("#ooStepEditor"));
+      $("#ooEscalator").value = "";
       recalcAndRender();
     });
 
@@ -612,16 +850,9 @@
     tbody.innerHTML = "";
     const rows = [...STATE.incomeStreams].sort((a, b) => a.name.localeCompare(b.name));
     for (const st of rows) {
-      const schedule = (() => {
-        switch (st.frequency) {
-          case "once": return `On ${st.onDate}`;
-          case "daily": return `Daily${st.skipWeekends ? " (M–F)" : ""}`;
-          case "weekly": return `Weekly on ${getDOWLabel(st.dayOfWeek)}`;
-          case "biweekly": return `Every 2 weeks on ${getDOWLabel(st.dayOfWeek)}`;
-          case "monthly": return `Monthly on day ${st.dayOfMonth}`;
-          default: return "";
-        }
-      })();
+      const schedule = describeTransactionSchedule(st);
+      const next = getNextOccurrence(st, todayYMD);
+      const nextLabel = next ? `${fmtMoney(next.amount)} (${next.date})` : "—";
 
       const tr = document.createElement("tr");
       tr.innerHTML = `
@@ -629,7 +860,7 @@
         <td>${st.category || ""}</td>
         <td>${st.frequency}</td>
         <td>${schedule}</td>
-        <td class="num">${fmtMoney(Number(st.amount || 0))}</td>
+        <td class="num">${nextLabel}</td>
         <td>${st.startDate} → ${st.endDate}</td>
         <td><button class="link" data-id="${st.id}" data-act="delStream">Delete</button></td>
       `;
@@ -638,6 +869,7 @@
   };
 
   const bindStreams = () => {
+    initStepEditor($("#stStepEditor"));
     $("#stFreq").addEventListener("change", showFreqBlocks);
     showFreqBlocks();
 
@@ -678,11 +910,17 @@
         stream.dayOfMonth = clamp(Number($("#stDOM").value || 1), 1, 31);
       }
 
+      stream.steps = collectStepRows($("#stStepEditor"));
+      const escalatorRaw = Number($("#stEscalator").value || 0);
+      stream.escalatorPct = Number.isFinite(escalatorRaw) ? escalatorRaw : 0;
+
       STATE.incomeStreams.push(stream);
       save(STATE);
       $("#streamForm").reset();
       $("#stFreq").value = "once";
       showFreqBlocks();
+      clearStepRows($("#stStepEditor"));
+      $("#stEscalator").value = "";
       recalcAndRender();
     });
 

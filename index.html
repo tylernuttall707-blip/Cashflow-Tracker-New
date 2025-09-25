@@ -183,6 +183,22 @@
               <label for="ooDOM">Day of Month</label>
               <input id="ooDOM" type="number" min="1" max="31" value="1" />
             </div>
+            <div class="field tx-recurring-only hidden">
+              <label>Stepped Amounts</label>
+              <div class="step-editor" id="ooStepEditor">
+                <table class="table compact">
+                  <thead>
+                    <tr><th>Effective From</th><th class="num">Amount</th><th></th></tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+                <button class="btn btn-outline" type="button" data-act="addStep">Add Step</button>
+              </div>
+            </div>
+            <div class="field tx-recurring-only hidden">
+              <label for="ooEscalator">Monthly Escalator (%)</label>
+              <input id="ooEscalator" type="number" step="0.01" placeholder="e.g. 2 for 2%" />
+            </div>
             <div class="actions">
               <button class="btn" type="submit">Add</button>
             </div>
@@ -191,7 +207,7 @@
           <table class="table" id="oneOffTable">
             <thead>
               <tr>
-                <th>Base Date</th><th>Schedule</th><th>Type</th><th>Description</th><th>Category</th><th class="num">Amount</th><th></th>
+                <th>Base Date</th><th>Schedule</th><th>Type</th><th>Description</th><th>Category</th><th class="num">Next Amount</th><th></th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -216,6 +232,10 @@
           <div class="field">
             <label for="stAmount">Amount</label>
             <input id="stAmount" type="number" step="0.01" required />
+          </div>
+          <div class="field">
+            <label for="stEscalator">Monthly Escalator (%)</label>
+            <input id="stEscalator" type="number" step="0.01" placeholder="e.g. 1.5" />
           </div>
           <div class="field">
             <label for="stFreq">Frequency</label>
@@ -259,6 +279,19 @@
             <input id="stDOM" type="number" min="1" max="31" value="1" />
           </div>
 
+          <div class="field full">
+            <label>Stepped Amounts</label>
+            <div class="step-editor" id="stStepEditor">
+              <table class="table compact">
+                <thead>
+                  <tr><th>Effective From</th><th class="num">Amount</th><th></th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+              <button class="btn btn-outline" type="button" data-act="addStep">Add Step</button>
+            </div>
+          </div>
+
           <div class="field">
             <label for="stStart">Start Date</label>
             <input id="stStart" type="date" required />
@@ -276,7 +309,7 @@
         <table class="table" id="streamsTable">
           <thead>
             <tr>
-              <th>Name</th><th>Category</th><th>Frequency</th><th>Schedule</th><th class="num">Amount</th><th>Dates</th><th></th>
+              <th>Name</th><th>Category</th><th>Frequency</th><th>Schedule</th><th class="num">Next Amount</th><th>Dates</th><th></th>
             </tr>
           </thead>
           <tbody></tbody>
