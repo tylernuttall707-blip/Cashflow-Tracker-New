@@ -1296,7 +1296,13 @@ const shim = {
       e.preventDefault();
       try {
         const parsed = JSON.parse($("#importText").value);
-        const nextState = normalizeState(parsed, { strict: true });
+        let nextState;
+        try {
+          nextState = normalizeState(parsed, { strict: true });
+        } catch (strictErr) {
+          nextState = normalizeState(parsed);
+          console.warn("Import used compatibility mode", strictErr);
+        }
         STATE = nextState;
         save(STATE);
         dlg.close();
