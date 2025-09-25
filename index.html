@@ -23,6 +23,7 @@
       <button class="tab active" data-tab="dashboard">Dashboard</button>
       <button class="tab" data-tab="movements">Cash Movements</button>
       <button class="tab" data-tab="income">Income Plan</button>
+      <button class="tab" data-tab="receivables">Receivables (AR)</button>
     </nav>
 
     <main>
@@ -375,6 +376,79 @@
         </table>
       </div>
     </section>
+
+    <!-- RECEIVABLES IMPORTER -->
+    <section id="receivables" class="tab-panel">
+      <div class="card">
+        <h2>Receivables (AR) Importer</h2>
+        <div class="ar-controls">
+          <div class="field">
+            <label for="arFile">Upload AR aging file</label>
+            <input id="arFile" type="file" accept=".csv,.xlsx,.xls" />
+          </div>
+        </div>
+
+        <div class="ar-options">
+          <div class="field">
+            <label for="arRoll">Weekend roll</label>
+            <select id="arRoll">
+              <option value="forward" selected>Roll forward</option>
+              <option value="back">Roll back</option>
+              <option value="none">No roll</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="arLag">Payment lag (days)</label>
+            <input id="arLag" type="number" value="0" min="0" step="1" />
+          </div>
+          <div class="field">
+            <label for="arConf">Confidence %</label>
+            <input id="arConf" type="number" value="100" min="0" max="100" step="1" />
+          </div>
+          <div class="field">
+            <label for="arCategory">Category</label>
+            <input id="arCategory" type="text" value="AR" />
+          </div>
+          <div class="field actions-inline">
+            <button id="arParseBtn" type="button" class="btn">Preview</button>
+            <button id="arRecalcBtn" type="button" class="btn btn-outline">Recalculate</button>
+            <button id="arImportBtn" type="button" class="btn" disabled>Import</button>
+          </div>
+        </div>
+
+        <details class="ar-mapping">
+          <summary>Map Columns</summary>
+          <div class="mapping-grid">
+            <label>Company<input id="colCompany" type="text" placeholder="Header for company" /></label>
+            <label>Invoice #<input id="colInvoice" type="text" placeholder="Header for invoice" /></label>
+            <label>Due Date<input id="colDue" type="text" placeholder="Header for due date" /></label>
+            <label>Amount<input id="colAmount" type="text" placeholder="Header for amount" /></label>
+          </div>
+        </details>
+
+        <div id="arStatus" class="ar-status"></div>
+
+        <div class="ar-preview-wrapper">
+          <table id="arPreview" class="table ar-preview">
+            <thead>
+              <tr>
+                <th class="select-col"><input type="checkbox" id="arSelectAll" /></th>
+                <th>Company</th>
+                <th>Invoice</th>
+                <th>Due</th>
+                <th>Expected</th>
+                <th>Amount</th>
+                <th>Name</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="arPagination" class="ar-pagination"></div>
+        <div id="arSummary" class="ar-summary"></div>
+      </div>
+    </section>
     </main>
 
     <dialog id="importDialog">
@@ -398,6 +472,8 @@
   <script src="vendor/jspdf.umd.min.js"></script>
   <script>if (window.jspdf && !window.jsPDF) { window.jsPDF = window.jspdf.jsPDF; }</script>
   <script src="vendor/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.0/dist/xlsx.full.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
