@@ -8,6 +8,16 @@
   const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
   const fmtMoney = (n) =>
     (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtDate = (ymd) => {
+    if (!ymd) return "";
+    try {
+      const d = fromYMD(ymd);
+      if (!(d instanceof Date) || Number.isNaN(d.getTime())) return ymd;
+      return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    } catch (err) {
+      return ymd;
+    }
+  };
   const pad = (n) => String(n).padStart(2, "0");
   const toYMD = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const fromYMD = (s) => {
@@ -763,6 +773,13 @@ const shim = {
     let running = Number(settings.startingBalance || 0);
     let totalIncome = 0;
     let totalExpenses = 0;
+    let lowestBalance = Number(settings.startingBalance || 0);
+    if (!Number.isFinite(lowestBalance)) lowestBalance = 0;
+    let lowestBalanceDate = settings.startDate || (cal.length ? cal[0].date : "");
+    let peakBalance = lowestBalance;
+    let peakBalanceDate = lowestBalanceDate;
+    let firstNegativeDate = null;
+    let negativeDays = 0;
 
     for (const row of cal) {
       row.net = row.income - row.expenses;
@@ -770,6 +787,19 @@ const shim = {
       row.running = running;
       totalIncome += row.income;
       totalExpenses += row.expenses;
+
+      if (row.running < lowestBalance) {
+        lowestBalance = row.running;
+        lowestBalanceDate = row.date;
+      }
+      if (row.running > peakBalance) {
+        peakBalance = row.running;
+        peakBalanceDate = row.date;
+      }
+      if (row.running < 0) {
+        negativeDays += 1;
+        if (!firstNegativeDate) firstNegativeDate = row.date;
+      }
     }
 
     let projectedWeeklyIncome = 0;
@@ -790,7 +820,19 @@ const shim = {
       }
     }
 
-    return { cal, totalIncome, totalExpenses, endBalance: running, projectedWeeklyIncome };
+    return {
+      cal,
+      totalIncome,
+      totalExpenses,
+      endBalance: running,
+      projectedWeeklyIncome,
+      lowestBalance,
+      lowestBalanceDate,
+      peakBalance,
+      peakBalanceDate,
+      firstNegativeDate,
+      negativeDays,
+    };
   };
 
   // ---------- Rendering ----------
@@ -1276,7 +1318,19 @@ const shim = {
   let balanceChart;
 
   const renderDashboard = () => {
-    const { cal, totalIncome, totalExpenses, endBalance, projectedWeeklyIncome } = computeProjection(STATE);
+    const {
+      cal,
+      totalIncome,
+      totalExpenses,
+      endBalance,
+      projectedWeeklyIncome,
+      lowestBalance,
+      lowestBalanceDate,
+      peakBalance,
+      peakBalanceDate,
+      firstNegativeDate,
+      negativeDays,
+    } = computeProjection(STATE);
 
     // KPIs
     $("#kpiEndBalance").textContent = fmtMoney(endBalance);
@@ -1284,6 +1338,18 @@ const shim = {
     $("#kpiExpenses").textContent = fmtMoney(totalExpenses);
     const weeklyEl = $("#kpiWeeklyIncome");
     if (weeklyEl) weeklyEl.textContent = fmtMoney(projectedWeeklyIncome);
+    const lowestEl = $("#kpiLowestBalance");
+    if (lowestEl) lowestEl.textContent = fmtMoney(lowestBalance);
+    const lowestDateEl = $("#kpiLowestDate");
+    if (lowestDateEl) lowestDateEl.textContent = lowestBalanceDate ? `on ${fmtDate(lowestBalanceDate)}` : "—";
+    const peakEl = $("#kpiPeakBalance");
+    if (peakEl) peakEl.textContent = fmtMoney(peakBalance);
+    const peakDateEl = $("#kpiPeakDate");
+    if (peakDateEl) peakDateEl.textContent = peakBalanceDate ? `on ${fmtDate(peakBalanceDate)}` : "—";
+    const negDaysEl = $("#kpiNegativeDays");
+    if (negDaysEl) negDaysEl.textContent = String(negativeDays);
+    const firstNegEl = $("#kpiFirstNegative");
+    if (firstNegEl) firstNegEl.textContent = firstNegativeDate ? fmtDate(firstNegativeDate) : "—";
 
     // Chart data
     const labels = cal.map((r) => r.date);
