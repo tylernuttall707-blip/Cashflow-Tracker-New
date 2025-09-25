@@ -373,8 +373,9 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha512-/Y2ey+t0pQiaZ9TQd1i7uHeH5uhNLa9hdzS5eynp8ctb/KsdeAO4M8SW3Ti9L5sFD3VUykwOc2ir2JoC+8BqlA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js" integrity="sha512-yPGvU8LojRxurx8W0prwPBukgJLL79cW5BKybdQeevhqymKiqiS06kFkVQBRyKQHsrnTG+EzHVa2e5JLmcG0uQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="vendor/jspdf.umd.min.js"></script>
+  <script>if (window.jspdf && !window.jsPDF) { window.jsPDF = window.jspdf.jsPDF; }</script>
+  <script src="vendor/jspdf.plugin.autotable.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
