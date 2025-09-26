@@ -137,8 +137,9 @@
       if (Number.isNaN(dt.getTime())) return null;
       return toYMD(dt);
     }
-    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(str)) {
-      const parts = str.split(/[\/\-]/).map((seg) => seg.trim());
+    const [datePart] = str.split(/\s+/);
+    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(datePart)) {
+      const parts = datePart.split(/[\/\-]/).map((seg) => seg.trim());
       if (parts.length === 3) {
         const [m, d, yRaw] = parts;
         let year = Number(yRaw);
@@ -687,11 +688,53 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
       .replace(/[^a-z0-9]+/g, " ")
       .trim();
 
-  const COMPANY_HEADER_CANDIDATES = ["customer", "distributor", "company", "bill to", "sold to"];
-  const INVOICE_HEADER_CANDIDATES = ["invoice", "inv #", "doc #", "document", "reference", "ref"];
-  const DUE_HEADER_CANDIDATES = ["due", "due date", "due_dt", "net due", "maturity", "due date (net)"];
-  const AMOUNT_HEADER_CANDIDATES = ["open amount", "balance", "amt due", "amount", "outstanding", "open bal"];
-  const TERMS_HEADER_CANDIDATES = ["terms", "payment terms", "net terms", "terms description"];
+  const COMPANY_HEADER_CANDIDATES = [
+    "customer",
+    "distributor",
+    "company",
+    "bill to",
+    "sold to",
+    "cmo name",
+    "cmoname",
+  ];
+  const INVOICE_HEADER_CANDIDATES = [
+    "invoice",
+    "inv #",
+    "doc #",
+    "document",
+    "reference",
+    "ref",
+    "arp invoice id",
+    "arparinvoiceid",
+  ];
+  const DUE_HEADER_CANDIDATES = [
+    "due",
+    "due date",
+    "due_dt",
+    "net due",
+    "maturity",
+    "due date (net)",
+    "arp due date",
+    "arpduedate",
+  ];
+  const AMOUNT_HEADER_CANDIDATES = [
+    "open amount",
+    "balance",
+    "amt due",
+    "amount",
+    "outstanding",
+    "open bal",
+    "arp invoice balance base",
+    "arpinvoicebalancebase",
+  ];
+  const TERMS_HEADER_CANDIDATES = [
+    "terms",
+    "payment terms",
+    "net terms",
+    "terms description",
+    "arp payment term id",
+    "arppaymenttermid",
+  ];
   const INVOICE_DATE_HEADER_CANDIDATES = [
     "invoice date",
     "inv date",
@@ -702,6 +745,8 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     "invoice_dt",
     "doc_dt",
     "date",
+    "arp invoice date",
+    "arpinvoicedate",
   ];
 
   const detectARColumns = (headers = []) => {
