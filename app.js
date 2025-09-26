@@ -2754,6 +2754,28 @@ const shim = {
       above: "#1b5e20",
       below: "#b71c1c"
     };
+    const segmentColor = (segCtx) => {
+      const { chart, p0, p1 } = segCtx || {};
+      const y0 = p0?.parsed?.y;
+      const y1 = p1?.parsed?.y;
+      if (!Number.isFinite(y0) || !Number.isFinite(y1)) return lineColors.above;
+      if (y0 >= 0 && y1 >= 0) return lineColors.above;
+      if (y0 <= 0 && y1 <= 0) return lineColors.below;
+
+      const chartCtx = chart?.ctx;
+      if (!chartCtx) return lineColors.above;
+      const gradient = chartCtx.createLinearGradient(p0.x, p0.y, p1.x, p1.y);
+      const total = Math.abs(y0) + Math.abs(y1);
+      const ratio = total === 0 ? 0.5 : Math.abs(y0) / total;
+      const startColor = y0 >= 0 ? lineColors.above : lineColors.below;
+      const endColor = y1 >= 0 ? lineColors.above : lineColors.below;
+      const midColor = y0 >= 0 ? lineColors.below : lineColors.above;
+      gradient.addColorStop(0, startColor);
+      gradient.addColorStop(Math.min(Math.max(ratio, 0), 1), startColor);
+      gradient.addColorStop(Math.min(Math.max(ratio, 0), 1), midColor);
+      gradient.addColorStop(1, endColor);
+      return gradient;
+    };
     balanceChart = new Chart(ctx, {
       type: "line",
       data: {
@@ -2765,20 +2787,9 @@ const shim = {
             tension: 0.25,
             borderWidth: 2,
             pointRadius: 0,
-            borderColor: (ctx) => {
-              const value = ctx?.parsed?.y;
-              if (Number.isFinite(value) && value < 0) return lineColors.below;
-              return lineColors.above;
-            },
+            borderColor: lineColors.above,
             segment: {
-              borderColor: (ctx) => {
-                const y0 = ctx?.p0?.parsed?.y;
-                const y1 = ctx?.p1?.parsed?.y;
-                if (!Number.isFinite(y0) || !Number.isFinite(y1)) return lineColors.above;
-                if (y0 >= 0 && y1 >= 0) return lineColors.above;
-                if (y0 <= 0 && y1 <= 0) return lineColors.below;
-                return y1 >= 0 ? lineColors.above : lineColors.below;
-              }
+              borderColor: segmentColor
             },
             fill: {
               target: { value: 0 },
