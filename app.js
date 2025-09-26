@@ -159,6 +159,9 @@
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
   const uid = () => Math.random().toString(36).slice(2, 9);
   const compareYMD = (a, b) => String(a || "").localeCompare(String(b || ""));
+  const compareText = (a, b) =>
+    String(a ?? "").localeCompare(String(b ?? ""), undefined, { sensitivity: "base" }) ||
+    String(a ?? "").localeCompare(String(b ?? ""));
   const describeNameAndCategory = (entry, fallback) => {
     if (!entry || typeof entry !== "object") return fallback;
     const parts = [];
@@ -331,6 +334,17 @@ const firstWeekday = (value, fallback = 0) => {
   const STORAGE_KEY = "cashflow2025_v1";
   const defaultEnd = "2025-12-31";
 
+  const ONE_OFF_SORT_KEYS = ["date", "schedule", "type", "name", "category", "next"];
+  const defaultOneOffSortState = () => ({ key: "date", direction: "asc" });
+
+  const sanitizeOneOffSortState = (value) => {
+    const defaults = defaultOneOffSortState();
+    if (!value || typeof value !== "object") return defaults;
+    const key = ONE_OFF_SORT_KEYS.includes(value.key) ? value.key : defaults.key;
+    const direction = value.direction === "desc" ? "desc" : defaults.direction;
+    return { key, direction };
+  };
+
   const defaultState = () => ({
     settings: {
       startDate: todayYMD,
@@ -340,6 +354,9 @@ const firstWeekday = (value, fallback = 0) => {
     adjustments: [],
     oneOffs: [],
     incomeStreams: [],
+    ui: {
+      oneOffSort: defaultOneOffSortState(),
+    },
   });
 
   const isValidYMDString = (value) => {
@@ -363,6 +380,14 @@ const firstWeekday = (value, fallback = 0) => {
     } else {
       if (strict) throw new Error("Invalid settings data");
       state.settings = { ...base.settings };
+    }
+
+    if (raw.ui && typeof raw.ui === "object" && !Array.isArray(raw.ui)) {
+      state.ui = { ...base.ui, ...raw.ui };
+      state.ui.oneOffSort = sanitizeOneOffSortState(raw.ui.oneOffSort);
+    } else {
+      if (strict && raw.ui !== undefined) throw new Error("Invalid ui data");
+      state.ui = { ...base.ui };
     }
 
     const ensureArray = (key) => {
@@ -2060,24 +2085,119 @@ const shim = {
     return desc;
   };
 
+  const getOneOffSortState = () => {
+    if (!STATE.ui || typeof STATE.ui !== "object") {
+      STATE.ui = { oneOffSort: defaultOneOffSortState() };
+      return STATE.ui.oneOffSort;
+    }
+    const sanitized = sanitizeOneOffSortState(STATE.ui.oneOffSort);
+    if (!STATE.ui.oneOffSort ||
+      STATE.ui.oneOffSort.key !== sanitized.key ||
+      STATE.ui.oneOffSort.direction !== sanitized.direction) {
+      STATE.ui.oneOffSort = sanitized;
+    }
+    return STATE.ui.oneOffSort;
+  };
+
+  const updateOneOffSortState = (key) => {
+    if (!key || !ONE_OFF_SORT_KEYS.includes(key)) return false;
+    const sortState = getOneOffSortState();
+    const prevKey = sortState.key;
+    let changed = false;
+    if (prevKey === key) {
+      const nextDirection = sortState.direction === "asc" ? "desc" : "asc";
+      if (nextDirection !== sortState.direction) {
+        sortState.direction = nextDirection;
+        changed = true;
+      }
+    } else {
+      sortState.key = key;
+      sortState.direction = "asc";
+      changed = true;
+    }
+    if (changed) save(STATE);
+    return changed;
+  };
+
+  const compareOneOffRows = (a, b, key) => {
+    switch (key) {
+      case "date":
+        return compareYMD(a.tx?.date, b.tx?.date);
+      case "schedule":
+        return compareText(a.schedule, b.schedule);
+      case "type":
+        return compareText(a.tx?.type, b.tx?.type);
+      case "name":
+        return compareText(a.tx?.name, b.tx?.name);
+      case "category":
+        return compareText(a.tx?.category, b.tx?.category);
+      case "next": {
+        const nextA = a.next;
+        const nextB = b.next;
+        if (nextA && nextB) {
+          const byDate = compareYMD(nextA.date, nextB.date);
+          if (byDate) return byDate;
+          const amtA = Number(nextA.amount);
+          const amtB = Number(nextB.amount);
+          const hasAmtA = Number.isFinite(amtA);
+          const hasAmtB = Number.isFinite(amtB);
+          if (hasAmtA && hasAmtB) {
+            if (amtA === amtB) return 0;
+            return amtA < amtB ? -1 : 1;
+          }
+          if (hasAmtA) return -1;
+          if (hasAmtB) return 1;
+          return 0;
+        }
+        if (nextA) return -1;
+        if (nextB) return 1;
+        return 0;
+      }
+      default:
+        return 0;
+    }
+  };
+
+  const updateOneOffSortIndicators = () => {
+    const { key, direction } = getOneOffSortState();
+    $$("#oneOffTable thead th[data-sort]").forEach((th) => {
+      if (th.dataset.sort === key) {
+        th.setAttribute("aria-sort", direction === "asc" ? "ascending" : "descending");
+      } else {
+        th.removeAttribute("aria-sort");
+      }
+    });
+  };
+
   const renderOneOffs = () => {
     const tbody = $("#oneOffTable tbody");
     tbody.innerHTML = "";
 
     const rows = [...(STATE.oneOffs || [])]
       .filter((tx) => tx && typeof tx === "object")
-      .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+      .map((tx) => ({
+        tx,
+        schedule: describeTransactionSchedule(tx),
+        next: getNextOccurrence(tx, todayYMD),
+      }));
 
-    for (const tx of rows) {
-      const nextLabel = (() => {
-        const next = getNextOccurrence(tx, todayYMD);
-        if (!next) return "—";
-        return `${fmtMoney(next.amount)} (${next.date})`;
-      })();
+    const sortState = getOneOffSortState();
+    const direction = sortState.direction === "desc" ? -1 : 1;
+    rows.sort((a, b) => {
+      const primary = compareOneOffRows(a, b, sortState.key);
+      if (primary) return primary * direction;
+      const fallbackDate = compareYMD(a.tx?.date, b.tx?.date);
+      if (fallbackDate) return fallbackDate * direction;
+      return compareText(a.tx?.name, b.tx?.name) * direction;
+    });
+
+    for (const row of rows) {
+      const { tx, schedule, next } = row;
+      const nextLabel = next ? `${fmtMoney(next.amount)} (${next.date})` : "—";
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${tx.date || ""}</td>
-        <td>${describeTransactionSchedule(tx)}</td>
+        <td>${schedule}</td>
         <td>${tx.type || ""}</td>
         <td>${tx.name || ""}</td>
         <td>${tx.category || ""}</td>
@@ -2086,6 +2206,8 @@ const shim = {
       `;
       tbody.appendChild(tr);
     }
+
+    updateOneOffSortIndicators();
   };
 
   const applyMonthlyModeVisibility = (select) => {
@@ -2284,6 +2406,24 @@ const shim = {
       STATE.oneOffs = STATE.oneOffs.filter((t) => t.id !== id);
       save(STATE);
       recalcAndRender();
+    });
+
+    const tableHead = $("#oneOffTable thead");
+    const requestSort = (key) => {
+      if (!updateOneOffSortState(key)) return;
+      renderOneOffs();
+    };
+    tableHead?.addEventListener("click", (event) => {
+      const th = event.target.closest("th[data-sort]");
+      if (!th) return;
+      requestSort(th.dataset.sort);
+    });
+    tableHead?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const th = event.target.closest("th[data-sort]");
+      if (!th) return;
+      event.preventDefault();
+      requestSort(th.dataset.sort);
     });
   };
 
