@@ -2907,6 +2907,125 @@ const shim = {
       doc.save(`cashflow-next-30-days-${startYMD}.pdf`);
     });
 
+    const snapshotBtn = $("#snapshotPdfBtn");
+    if (snapshotBtn) {
+      snapshotBtn.addEventListener("click", () => {
+        const jsPDF = window.jspdf?.jsPDF || window.jsPDF;
+        if (typeof jsPDF !== "function") {
+          alert("PDF generator not available.");
+          return;
+        }
+
+        const projection = computeProjection(STATE);
+        const doc = new jsPDF({ orientation: "landscape" });
+        if (typeof doc.autoTable !== "function") {
+          alert("PDF table plugin not available.");
+          return;
+        }
+
+        const { settings } = STATE;
+        doc.setFontSize(18);
+        doc.text("Cash Flow Snapshot", 14, 15);
+        doc.setFontSize(10);
+        doc.text(`Generated on ${todayYMD}`, 14, 22);
+        if (settings?.startDate || settings?.endDate) {
+          const rangeText = `Model Range: ${settings?.startDate || "—"} to ${settings?.endDate || "—"}`;
+          doc.text(rangeText, 14, 28);
+        }
+
+        const formatDateOrDash = (ymd) => (ymd ? fmtDate(ymd) : "—");
+        const quickStatsRows = [
+          ["Projected End Balance", fmtMoney(projection.endBalance), "—"],
+          ["Total Planned Income", fmtMoney(projection.totalIncome), "—"],
+          ["Projected Weekly Income", fmtMoney(projection.projectedWeeklyIncome), "—"],
+          ["Total Planned Expenses", fmtMoney(projection.totalExpenses), "—"],
+          ["Lowest Projected Balance", fmtMoney(projection.lowestBalance), formatDateOrDash(projection.lowestBalanceDate)],
+          ["Peak Projected Balance", fmtMoney(projection.peakBalance), formatDateOrDash(projection.peakBalanceDate)],
+          ["Days Below $0", String(projection.negativeDays), "—"],
+          ["First Negative Day", formatDateOrDash(projection.firstNegativeDate), "—"],
+        ];
+
+        doc.autoTable({
+          startY: 35,
+          head: [["Metric", "Value", "Date / Notes"]],
+          body: quickStatsRows,
+          styles: { fontSize: 10, cellPadding: 3 },
+          headStyles: { fillColor: [15, 23, 42] },
+          columnStyles: {
+            0: { cellWidth: 70 },
+            1: { cellWidth: 45 },
+          },
+        });
+
+        const chartCanvas = $("#balanceChart");
+        const chartStartY = (doc.lastAutoTable?.finalY || 35) + 10;
+        if (chartCanvas) {
+          try {
+            const chartDataUrl = chartCanvas.toDataURL("image/png", 1.0);
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            const margin = 14;
+            const availableWidth = pageWidth - margin * 2;
+            let imageY = chartStartY;
+            if (imageY + 10 > pageHeight) imageY = margin;
+            const availableHeight = pageHeight - imageY - margin;
+            if (availableWidth > 0 && availableHeight > 0) {
+              const imgProps = doc.getImageProperties(chartDataUrl);
+              let imgWidth = availableWidth;
+              let imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+              if (imgHeight > availableHeight) {
+                imgHeight = availableHeight;
+                imgWidth = (imgProps.width * imgHeight) / imgProps.height;
+              }
+              doc.addImage(chartDataUrl, "PNG", margin, imageY, imgWidth, imgHeight);
+            }
+          } catch (err) {
+            console.warn("Failed to render chart in PDF", err);
+            doc.setFontSize(12);
+            doc.text("Projected balance chart unavailable for export.", 14, chartStartY);
+          }
+        } else {
+          doc.setFontSize(12);
+          doc.text("Projected balance chart unavailable for export.", 14, chartStartY);
+        }
+
+        doc.addPage();
+        doc.setFontSize(16);
+        doc.text("Upcoming 14 Days", 14, 15);
+        doc.setFontSize(10);
+        doc.text(`Generated on ${todayYMD}`, 14, 22);
+
+        const next14 = Array.isArray(projection.cal) ? projection.cal.slice(0, 14) : [];
+        if (next14.length) {
+          const upcomingBody = next14.map((row) => [
+            row.date,
+            fmtMoney(row.income),
+            fmtMoney(row.expenses),
+            fmtMoney(row.net),
+            fmtMoney(row.running),
+          ]);
+          doc.autoTable({
+            startY: 28,
+            head: [["Date", "Income", "Expenses", "Net", "Running"]],
+            body: upcomingBody,
+            styles: { fontSize: 9 },
+            headStyles: { fillColor: [15, 23, 42] },
+            columnStyles: {
+              1: { cellWidth: 35 },
+              2: { cellWidth: 35 },
+              3: { cellWidth: 35 },
+              4: { cellWidth: 35 },
+            },
+          });
+        } else {
+          doc.setFontSize(12);
+          doc.text("No projection data available for the next 14 days.", 14, 32);
+        }
+
+        doc.save(`cash-flow-snapshot-${todayYMD}.pdf`);
+      });
+    }
+
     const dlg = $("#importDialog");
     $("#importBtn").addEventListener("click", () => dlg.showModal());
     $("#confirmImportBtn").addEventListener("click", (e) => {
