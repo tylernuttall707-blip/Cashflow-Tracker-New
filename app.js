@@ -704,6 +704,9 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
 });
 
 
+  let editingOneOffId = null;
+
+
   // ---------- Receivables importer helpers ----------
   const normalizeHeaderLabel = (value) =>
     String(value ?? "")
@@ -2202,7 +2205,11 @@ const shim = {
         <td>${tx.name || ""}</td>
         <td>${tx.category || ""}</td>
         <td class="num">${nextLabel}</td>
-        <td><button class="link" data-id="${tx.id}" data-act="delOneOff">Delete</button></td>
+        <td>
+          <button class="link" data-id="${tx.id}" data-act="editOneOff">Edit</button>
+          <span aria-hidden="true">·</span>
+          <button class="link" data-id="${tx.id}" data-act="delOneOff">Delete</button>
+        </td>
       `;
       tbody.appendChild(tr);
     }
@@ -2306,6 +2313,130 @@ const shim = {
     });
   };
 
+  const updateOneOffFormEditingState = () => {
+    const submitBtn = $("#ooSubmitBtn");
+    const cancelBtn = $("#ooCancelEdit");
+    if (!submitBtn || !cancelBtn) return;
+    if (editingOneOffId) {
+      submitBtn.textContent = "Save Changes";
+      cancelBtn.classList.remove("hidden");
+    } else {
+      submitBtn.textContent = "Add";
+      cancelBtn.classList.add("hidden");
+    }
+  };
+
+  const resetOneOffForm = () => {
+    const form = $("#oneOffForm");
+    if (!form) return;
+    form.reset();
+    editingOneOffId = null;
+    const stepEditor = $("#ooStepEditor");
+    clearStepRows(stepEditor);
+    const escalatorInput = $("#ooEscalator");
+    if (escalatorInput) escalatorInput.value = "";
+    showTransactionFreqBlocks();
+    updateOneOffFormEditingState();
+  };
+
+  const populateWeekdaySelections = (selectEl, values) => {
+    if (!selectEl) return;
+    const normalized = toWeekdayArray(values);
+    const lookup = new Set(normalized.map((value) => String(value)));
+    const options = Array.from(selectEl.options || []);
+    if (!lookup.size) {
+      options.forEach((option) => {
+        option.selected = option.defaultSelected;
+      });
+      return;
+    }
+    options.forEach((option) => {
+      option.selected = lookup.has(option.value);
+    });
+  };
+
+  const startOneOffEdit = (id) => {
+    const form = $("#oneOffForm");
+    if (!form) return;
+    const tx = (STATE.oneOffs || []).find((item) => item && item.id === id);
+    if (!tx) return;
+
+    editingOneOffId = tx.id;
+
+    const dateInput = $("#ooDate");
+    if (dateInput) dateInput.value = tx.date || "";
+
+    const typeInput = $("#ooType");
+    if (typeInput) typeInput.value = tx.type || "expense";
+
+    const nameInput = $("#ooName");
+    if (nameInput) nameInput.value = tx.name || "";
+
+    const categoryInput = $("#ooCategory");
+    if (categoryInput) categoryInput.value = tx.category || "";
+
+    const amountInput = $("#ooAmount");
+    if (amountInput) amountInput.value = tx.amount ?? "";
+
+    const repeatsToggle = $("#ooRepeats");
+    const isRecurring = Boolean(tx.repeats || tx.recurring);
+    if (repeatsToggle) repeatsToggle.checked = isRecurring;
+
+    const freqSelect = $("#ooFreq");
+    if (freqSelect) freqSelect.value = tx.frequency || "monthly";
+
+    const startInput = $("#ooStart");
+    if (startInput) startInput.value = tx.startDate || "";
+
+    const endInput = $("#ooEnd");
+    if (endInput) endInput.value = tx.endDate || "";
+
+    const skipWeekends = $("#ooSkipWeekends");
+    if (skipWeekends) skipWeekends.checked = Boolean(tx.skipWeekends);
+
+    const monthlyModeSel = $("#ooMonthlyMode");
+    if (monthlyModeSel) {
+      monthlyModeSel.value = tx.monthlyMode === "nth" ? "nth" : "day";
+    }
+
+    showTransactionFreqBlocks();
+
+    const dowSelect = $("#ooDOW");
+    populateWeekdaySelections(dowSelect, tx.dayOfWeek || []);
+
+    const monthlyMode = monthlyModeSel ? monthlyModeSel.value : "day";
+    if (monthlyMode === "nth") {
+      const nthWeekSel = $("#ooNthWeek");
+      if (nthWeekSel) nthWeekSel.value = normalizeNth(tx.nthWeek);
+      const nthWeekdaySel = $("#ooNthWeekday");
+      if (nthWeekdaySel) {
+        const normalizedDOW = clamp(Number(tx.nthWeekday ?? 0), 0, 6);
+        nthWeekdaySel.value = String(normalizedDOW);
+      }
+    } else {
+      const domInput = $("#ooDOM");
+      if (domInput) {
+        const domValue = clamp(Number(tx.dayOfMonth || domInput.value || 1), 1, 31);
+        domInput.value = domValue;
+      }
+    }
+
+    const stepEditor = $("#ooStepEditor");
+    clearStepRows(stepEditor);
+    if (stepEditor && Array.isArray(tx.steps) && tx.steps.length) {
+      tx.steps.forEach((step) => addStepRow(stepEditor, step));
+    }
+
+    const escalatorInput = $("#ooEscalator");
+    if (escalatorInput) {
+      const esc = Number(tx.escalatorPct);
+      escalatorInput.value = Number.isFinite(esc) && esc !== 0 ? esc : "";
+    }
+
+    updateOneOffFormEditingState();
+    dateInput?.focus?.();
+  };
+
   const bindOneOffs = () => {
     const form = $("#oneOffForm");
     const freqSel = $("#ooFreq");
@@ -2314,10 +2445,15 @@ const shim = {
 
     initStepEditor($("#ooStepEditor"));
 
+    resetOneOffForm();
+
     repeatsToggle.addEventListener("change", showTransactionFreqBlocks);
     freqSel.addEventListener("change", showTransactionFreqBlocks);
     $("#ooMonthlyMode")?.addEventListener("change", (e) => {
       applyMonthlyModeVisibility(e.target);
+    });
+    $("#ooCancelEdit")?.addEventListener("click", () => {
+      resetOneOffForm();
     });
     const dateInput = $("#ooDate");
     dateInput?.addEventListener("change", () => {
@@ -2334,6 +2470,8 @@ const shim = {
     form.addEventListener("submit", (e) => {
       e.preventDefault();
 
+      const editingId = editingOneOffId;
+      const isEditing = Boolean(editingId);
       const repeats = repeatsToggle.checked;
       const date = $("#ooDate").value;
       const type = $("#ooType").value;
@@ -2343,7 +2481,7 @@ const shim = {
       if (!date || !name || Number.isNaN(amount)) return;
 
       const entry = {
-        id: uid(),
+        id: isEditing ? editingId : uid(),
         date,
         type,
         name,
@@ -2389,23 +2527,38 @@ const shim = {
         entry.escalatorPct = 0;
       }
 
-      STATE.oneOffs.push(entry);
+      if (isEditing) {
+        const idx = STATE.oneOffs.findIndex((tx) => tx && tx.id === editingId);
+        if (idx >= 0) {
+          STATE.oneOffs[idx] = entry;
+        } else {
+          STATE.oneOffs.push(entry);
+        }
+      } else {
+        STATE.oneOffs.push(entry);
+      }
 
       save(STATE);
-      form.reset();
-      showTransactionFreqBlocks();
-      clearStepRows($("#ooStepEditor"));
-      $("#ooEscalator").value = "";
+      resetOneOffForm();
       recalcAndRender();
     });
 
     $("#oneOffTable").addEventListener("click", (e) => {
-      const btn = e.target.closest("button[data-act='delOneOff']");
+      const btn = e.target.closest("button[data-act]");
       if (!btn) return;
-      const id = btn.getAttribute("data-id");
-      STATE.oneOffs = STATE.oneOffs.filter((t) => t.id !== id);
-      save(STATE);
-      recalcAndRender();
+      const { act, id } = btn.dataset;
+      if (!id) return;
+
+      if (act === "delOneOff") {
+        STATE.oneOffs = STATE.oneOffs.filter((t) => t.id !== id);
+        if (editingOneOffId === id) {
+          resetOneOffForm();
+        }
+        save(STATE);
+        recalcAndRender();
+      } else if (act === "editOneOff") {
+        startOneOffEdit(id);
+      }
     });
 
     const tableHead = $("#oneOffTable thead");
