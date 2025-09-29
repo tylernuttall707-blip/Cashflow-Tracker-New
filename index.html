@@ -301,8 +301,13 @@
     <!-- CASH MOVEMENTS -->
     <section id="movements" class="tab-panel">
       <div class="card">
-        <div>
+        <div class="card-header">
           <h2>One-Off Transactions</h2>
+          <div class="header-actions">
+            <button id="dedupeCashBtn" class="btn btn-outline" type="button">Remove Duplicates</button>
+          </div>
+        </div>
+        <div>
           <form id="oneOffForm" class="form grid-4">
             <div class="field">
               <label for="ooDate">Date</label>
