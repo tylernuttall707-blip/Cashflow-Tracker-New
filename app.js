@@ -3548,22 +3548,76 @@ const shim = {
       });
     }
 
-    const tableBody = $("#whatifTable tbody");
-    if (tableBody) {
-      tableBody.innerHTML = "";
+    const calendarGrid = $("#whatifCalendar");
+    if (calendarGrid) {
       const rows = (whatIfProjection.cal || [])
         .filter((row) => compareYMD(row.date, startDate) >= 0)
         .slice(0, 30);
-      for (const row of rows) {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${row.date}</td>
-          <td class="num">${fmtMoney(row.income)}</td>
-          <td class="num">${fmtMoney(row.expenses)}</td>
-          <td class="num">${fmtMoney(row.net)}</td>
-          <td class="num">${fmtMoney(row.running)}</td>
-        `;
-        tableBody.appendChild(tr);
+
+      if (!rows.length) {
+        calendarGrid.classList.add("whatif-calendar-grid--empty");
+        calendarGrid.innerHTML = '<div class="whatif-calendar-empty">No projection data available.</div>';
+      } else {
+        calendarGrid.classList.remove("whatif-calendar-grid--empty");
+        calendarGrid.innerHTML = "";
+        const rowMap = new Map(rows.map((row) => [row.date, row]));
+        const activeStart = rows[0].date;
+        const activeEnd = rows[rows.length - 1].date;
+        const startDateObj = fromYMD(activeStart);
+        const endDateObj = fromYMD(activeEnd);
+        const calendarStart = new Date(startDateObj);
+        calendarStart.setDate(calendarStart.getDate() - calendarStart.getDay());
+        const calendarEnd = new Date(endDateObj);
+        calendarEnd.setDate(calendarEnd.getDate() + (6 - calendarEnd.getDay()));
+
+        const createMetric = (label, value, className = "") => {
+          const el = document.createElement("div");
+          el.className = `whatif-calendar-metric ${className}`.trim();
+          el.innerHTML = `<span>${label}</span><span>${value}</span>`;
+          return el;
+        };
+
+        for (let cursor = new Date(calendarStart); cursor <= calendarEnd; cursor.setDate(cursor.getDate() + 1)) {
+          const ymd = toYMD(cursor);
+          const row = rowMap.get(ymd);
+          const isInRange = compareYMD(ymd, activeStart) >= 0 && compareYMD(ymd, activeEnd) <= 0;
+          const cell = document.createElement("div");
+          cell.className = "whatif-calendar-cell";
+          if (!isInRange) cell.classList.add("is-outside");
+          if (!row && isInRange) cell.classList.add("no-data");
+
+          const dateEl = document.createElement("div");
+          dateEl.className = "whatif-calendar-date";
+          dateEl.textContent = fmtDate(ymd);
+          cell.appendChild(dateEl);
+
+          if (isInRange) {
+            const income = row ? row.income : 0;
+            const expenses = row ? row.expenses : 0;
+            const net = row ? row.net : income - expenses;
+            const running = row ? row.running : 0;
+
+            const incomeMetric = createMetric("Income", fmtMoney(income), "income");
+            if (income > 0) incomeMetric.classList.add("positive");
+            cell.appendChild(incomeMetric);
+
+            const expenseMetric = createMetric("Expenses", fmtMoney(expenses), "expenses");
+            if (expenses > 0) expenseMetric.classList.add("negative");
+            cell.appendChild(expenseMetric);
+
+            const netMetric = createMetric("Net", fmtMoney(net), "net");
+            if (net > 0) netMetric.classList.add("positive");
+            else if (net < 0) netMetric.classList.add("negative");
+            cell.appendChild(netMetric);
+
+            const runningMetric = createMetric("Running", fmtMoney(running), "running");
+            if (running > 0) runningMetric.classList.add("positive");
+            else if (running < 0) runningMetric.classList.add("negative");
+            cell.appendChild(runningMetric);
+          }
+
+          calendarGrid.appendChild(cell);
+        }
       }
     }
     const tableStartLabel = $("#whatifTableStart");
