@@ -136,16 +136,30 @@ main { padding: 20px 0; display: grid; gap: 16px; }
 .whatif-fields label { font-weight: 600; }
 .whatif-slider { display:flex; flex-direction:column; gap:6px; }
 .multiplier-value { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); }
-.whatif-streams { display: flex; flex-direction: column; gap: 10px; }
-.whatif-stream { display: flex; flex-direction: column; gap: 6px; }
-.whatif-stream label { display:flex; justify-content: space-between; align-items: center; font-weight: 600; }
-.whatif-stream .stream-name { flex: 1; margin-right: 12px; }
-.whatif-stream .stream-multiplier { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); }
+.whatif-global-grid { display:grid; gap:10px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.whatif-percent-inputs { display:flex; align-items:center; gap:8px; }
+.whatif-percent-inputs input[type="number"] { width: 80px; }
+.whatif-global-summary { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.whatif-streams { display: flex; flex-direction: column; gap: 12px; }
+.whatif-stream { display: flex; flex-direction: column; gap: 12px; border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 12px; padding: 12px; background: rgba(255, 255, 255, 0.85); }
+.whatif-stream-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.whatif-stream-title { display:flex; flex-direction:column; gap:4px; }
+.whatif-stream .stream-name { font-weight:600; }
+.whatif-stream .stream-base { font-size:13px; color: var(--muted); }
+.whatif-lock { border:none; background: rgba(95, 123, 255, 0.08); color: var(--accent); border-radius: 999px; padding: 4px 10px; cursor:pointer; font-size: 18px; line-height:1; display:flex; align-items:center; justify-content:center; }
+.whatif-lock:hover { background: rgba(95, 123, 255, 0.18); }
+.whatif-stream-body { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); align-items: end; }
+.whatif-field { display:flex; flex-direction:column; gap:6px; font-size:14px; }
+.whatif-field span { font-weight:600; display:flex; align-items:center; justify-content:space-between; }
+.whatif-field small { font-weight:500; color: var(--muted); margin-left: 6px; font-size: 12px; }
+.whatif-field input { width:100%; }
+.whatif-number { font-variant-numeric: tabular-nums; }
+.whatif-stream-actions { display:flex; justify-content:flex-end; align-items:center; grid-column: 1 / -1; }
 .whatif-streams-empty { color: var(--muted); font-size: 13px; font-style: italic; }
 .whatif-toggle { display:flex; align-items:center; gap:8px; font-weight:600; font-size:14px; }
 .whatif-sale-options { display:flex; flex-direction:column; gap:8px; }
-.whatif-sale-modes { display:flex; gap:12px; flex-wrap:wrap; font-size:14px; }
-.whatif-sale-modes label { display:flex; align-items:center; gap:6px; font-weight:600; }
+.whatif-sale-grid { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.whatif-sale-mode-label { font-size: 13px; color: var(--muted); }
 .whatif-inline { display:flex; gap:12px; flex-wrap:wrap; }
 .whatif-inline .whatif-fields { flex:1; min-width: 160px; }
 .whatif-table-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
