@@ -187,6 +187,27 @@ main { padding: 20px 0; display: grid; gap: 16px; }
 .whatif-inline .whatif-fields { flex:1; min-width: 160px; }
 .whatif-table-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
 .whatif-table-meta { color: var(--muted); font-size: 13px; }
+.whatif-calendar { display:flex; flex-direction:column; gap:8px; }
+.whatif-calendar-head,
+.whatif-calendar-grid { display:grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap:8px; }
+.whatif-calendar-head div { text-align:center; font-weight:600; font-size:13px; color: var(--muted); text-transform:uppercase; letter-spacing:0.4px; }
+.whatif-calendar-grid { align-items:stretch; }
+.whatif-calendar-grid--empty { display:block; }
+.whatif-calendar-empty { padding:24px; border:1px dashed var(--border); border-radius:12px; text-align:center; color: var(--muted); font-size:14px; background: rgba(255,255,255,0.6); }
+.whatif-calendar-cell { border:1px solid rgba(148, 163, 184, 0.35); border-radius:12px; padding:10px; background: rgba(255,255,255,0.9); display:flex; flex-direction:column; gap:6px; min-height:140px; box-shadow: 0 12px 24px rgba(17,25,40,0.05); }
+.whatif-calendar-cell.is-outside { background: rgba(248, 250, 255, 0.5); border-style:dashed; color: var(--muted); box-shadow:none; }
+.whatif-calendar-cell.no-data { opacity: 0.75; }
+.whatif-calendar-date { font-weight:600; font-size:13px; color: var(--text); }
+.whatif-calendar-cell.is-outside .whatif-calendar-date { color: var(--muted); }
+.whatif-calendar-metric { display:flex; justify-content:space-between; gap:8px; font-size:12px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.whatif-calendar-metric span:last-child { font-weight:600; color: var(--text); }
+.whatif-calendar-metric.income span:last-child { color: var(--good); }
+.whatif-calendar-metric.expenses span:last-child { color: var(--bad); }
+.whatif-calendar-metric.positive span:last-child { color: #166534; }
+.whatif-calendar-metric.negative span:last-child { color: var(--bad); }
+.whatif-calendar-cell.is-outside .whatif-calendar-metric span:last-child { color: inherit; }
+.whatif-calendar-cell.is-outside .whatif-calendar-metric { color: inherit; }
+.whatif-calendar-cell.is-outside .whatif-calendar-metric span:last-child { font-weight:500; }
 
 .whatif-kpis .kpi { box-shadow: none; }
 
