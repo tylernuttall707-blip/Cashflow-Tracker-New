@@ -575,6 +575,12 @@
             <label for="arCategory">Category</label>
             <input id="arCategory" type="text" value="AR" />
           </div>
+          <div class="field checkbox-field">
+            <label class="checkbox-label">
+              <input id="arPrune" type="checkbox" />
+              Prune invoices missing from this import (archive)
+            </label>
+          </div>
           <div class="field actions-inline">
             <button id="arParseBtn" type="button" class="btn">Preview</button>
             <button id="arRecalcBtn" type="button" class="btn btn-outline">Recalculate</button>
@@ -594,11 +600,18 @@
 
         <div id="arStatus" class="ar-status"></div>
 
+        <div id="arCounters" class="ar-counters"></div>
+
         <div class="ar-preview-wrapper">
           <table id="arPreview" class="table ar-preview">
             <thead>
               <tr>
-                <th class="select-col"><input type="checkbox" id="arSelectAll" /></th>
+                <th class="select-col">
+                  <label class="ar-select-all">
+                    <input type="checkbox" id="arSelectAll" />
+                    <span>Select All (except SAME)</span>
+                  </label>
+                </th>
                 <th>Company</th>
                 <th>Invoice</th>
                 <th>Due</th>
