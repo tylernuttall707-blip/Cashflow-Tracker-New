@@ -70,6 +70,9 @@ main { padding: 20px 0; display: grid; gap: 16px; }
 .card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 16px; box-shadow: 0 20px 40px rgba(17, 25, 40, 0.08);
 }
+.card-header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom: 12px; }
+.card-header h2 { margin: 0; }
+.card-header .header-actions { display:flex; gap:8px; flex-wrap:wrap; }
 .grid-2 { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0,1fr)); }
 .grid-4 { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0,1fr)); }
 @media (max-width: 900px){
@@ -101,6 +104,57 @@ main { padding: 20px 0; display: grid; gap: 16px; }
 .kpi-label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
 .kpi-value { font-size: 20px; font-weight: 700; }
 .kpi-meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.delta { font-weight: 600; }
+.delta-positive { color: #166534; }
+.delta-negative { color: var(--bad); }
+.delta-neutral { color: var(--muted); }
+
+.whatif-controls {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+.whatif-control-block {
+  background: rgba(239, 246, 255, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.whatif-control-block h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.whatif-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+.whatif-fields label { font-weight: 600; }
+.whatif-slider { display:flex; flex-direction:column; gap:6px; }
+.multiplier-value { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); }
+.whatif-streams { display: flex; flex-direction: column; gap: 10px; }
+.whatif-stream { display: flex; flex-direction: column; gap: 6px; }
+.whatif-stream label { display:flex; justify-content: space-between; align-items: center; font-weight: 600; }
+.whatif-stream .stream-name { flex: 1; margin-right: 12px; }
+.whatif-stream .stream-multiplier { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); }
+.whatif-streams-empty { color: var(--muted); font-size: 13px; font-style: italic; }
+.whatif-toggle { display:flex; align-items:center; gap:8px; font-weight:600; font-size:14px; }
+.whatif-sale-options { display:flex; flex-direction:column; gap:8px; }
+.whatif-sale-modes { display:flex; gap:12px; flex-wrap:wrap; font-size:14px; }
+.whatif-sale-modes label { display:flex; align-items:center; gap:6px; font-weight:600; }
+.whatif-inline { display:flex; gap:12px; flex-wrap:wrap; }
+.whatif-inline .whatif-fields { flex:1; min-width: 160px; }
+.whatif-table-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+.whatif-table-meta { color: var(--muted); font-size: 13px; }
+
+.whatif-kpis .kpi { box-shadow: none; }
+
+.whatif-sale-options[hidden] { display:none; }
+.whatif-sale-options [data-sale-mode][hidden] { display:none; }
 
 .table { width: 100%; border-collapse: collapse; }
 .table th, .table td { padding: 10px; border-bottom: 1px solid var(--border); }

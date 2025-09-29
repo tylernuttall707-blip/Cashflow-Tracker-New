@@ -35,6 +35,13 @@
     if (!Number.isFinite(num)) return 0;
     return Math.round(num * 100) / 100;
   };
+  const deepClone = (value) => {
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch {
+      return null;
+    }
+  };
   const addDays = (ymd, days = 0) => {
     if (!ymd || typeof ymd !== "string") return ymd;
     const delta = Number(days || 0);
@@ -332,6 +339,7 @@ const firstWeekday = (value, fallback = 0) => {
 
   // ---------- Storage ----------
   const STORAGE_KEY = "cashflow2025_v1";
+  const WHATIF_STORAGE_KEY = `${STORAGE_KEY}_sandbox_v1`;
   const defaultEnd = "2025-12-31";
 
   const ONE_OFF_SORT_KEYS = ["date", "schedule", "type", "name", "category", "next"];
@@ -670,7 +678,94 @@ const firstWeekday = (value, fallback = 0) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   };
 
+  const clampMultiplier = (value, fallback = 1) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return fallback;
+    return Math.round(clamp(num, 0, 2) * 100) / 100;
+  };
+
+  const cloneStateForSandbox = (src) => {
+    try {
+      return normalizeState(deepClone(src) ?? {});
+    } catch {
+      return normalizeState(defaultState());
+    }
+  };
+
+  const sanitizeWhatIfState = (raw, fallbackBase = defaultState()) => {
+    const fallback = cloneStateForSandbox(fallbackBase);
+    const baseRaw = raw && typeof raw === "object" ? raw.base : null;
+    const base = baseRaw ? cloneStateForSandbox(baseRaw) : fallback;
+
+    if (!Array.isArray(base.incomeStreams)) base.incomeStreams = [];
+
+    const baseSettings = base.settings || fallback.settings || defaultState().settings;
+    const tweaksRaw = raw && typeof raw === "object" && typeof raw.tweaks === "object" ? raw.tweaks : {};
+
+    const globalMultiplier = clampMultiplier(tweaksRaw.globalMultiplier, 1);
+
+    const rawStreamMap =
+      tweaksRaw.streamMultipliers && typeof tweaksRaw.streamMultipliers === "object"
+        ? tweaksRaw.streamMultipliers
+        : {};
+    const streamMultipliers = {};
+    for (const stream of base.incomeStreams) {
+      if (!stream || typeof stream !== "object") continue;
+      if (typeof stream.id !== "string") stream.id = uid();
+      const rawValue = rawStreamMap[stream.id];
+      streamMultipliers[stream.id] = clampMultiplier(rawValue, 1);
+    }
+
+    const startDate = isValidYMDString(tweaksRaw.startDate) ? tweaksRaw.startDate : baseSettings.startDate;
+    let endDate = isValidYMDString(tweaksRaw.endDate) ? tweaksRaw.endDate : baseSettings.endDate;
+    if (compareYMD(startDate, endDate) > 0) endDate = startDate;
+
+    const saleRaw = tweaksRaw.sale && typeof tweaksRaw.sale === "object" ? tweaksRaw.sale : {};
+    const saleStart = isValidYMDString(saleRaw.startDate) ? saleRaw.startDate : startDate;
+    let saleEnd = isValidYMDString(saleRaw.endDate) ? saleRaw.endDate : saleStart;
+    if (compareYMD(saleStart, saleEnd) > 0) saleEnd = saleStart;
+    const percentRaw = Number(saleRaw.percent);
+    const topupRaw = Number(saleRaw.topup);
+    const sale = {
+      enabled: Boolean(saleRaw.enabled),
+      mode: saleRaw.mode === "topup" ? "topup" : "percent",
+      percent: Number.isFinite(percentRaw) ? Math.max(0, percentRaw) : 0.15,
+      topup: Number.isFinite(topupRaw) ? Math.max(0, topupRaw) : 0,
+      startDate: saleStart,
+      endDate: saleEnd,
+      businessDaysOnly: Boolean(saleRaw.businessDaysOnly),
+    };
+
+    return {
+      base,
+      tweaks: {
+        globalMultiplier,
+        streamMultipliers,
+        sale,
+        startDate,
+        endDate,
+      },
+    };
+  };
+
+  const loadWhatIf = (fallbackBase) => {
+    const fallback = fallbackBase || defaultState();
+    try {
+      const raw = localStorage.getItem(WHATIF_STORAGE_KEY);
+      if (!raw) return sanitizeWhatIfState({ base: fallback }, fallback);
+      const data = JSON.parse(raw);
+      return sanitizeWhatIfState(data, fallback);
+    } catch {
+      return sanitizeWhatIfState({ base: fallback }, fallback);
+    }
+  };
+
+  const saveWhatIf = (sandbox) => {
+    localStorage.setItem(WHATIF_STORAGE_KEY, JSON.stringify(sandbox));
+  };
+
   let STATE = load();
+  let WHATIF = loadWhatIf(STATE);
 
 STATE.incomeStreams = (STATE.incomeStreams || []).map((stream) => {
   if (!stream || typeof stream !== "object") return stream;
@@ -1790,7 +1885,22 @@ const shim = {
     return days;
   };
 
-  const computeProjection = (state) => {
+  const computeProjection = (state, overrides = {}) => {
+    const getStreamMultiplier =
+      typeof overrides.getStreamMultiplier === "function" ? overrides.getStreamMultiplier : () => 1;
+    const saleConfig = overrides.sale && typeof overrides.sale === "object" ? overrides.sale : null;
+    const saleEnabled =
+      saleConfig &&
+      saleConfig.enabled &&
+      isValidYMDString(saleConfig.startDate) &&
+      isValidYMDString(saleConfig.endDate);
+    const saleStart = saleEnabled ? saleConfig.startDate : null;
+    const saleEnd = saleEnabled ? saleConfig.endDate : null;
+    const saleMode = saleConfig?.mode === "topup" ? "topup" : "percent";
+    const salePercent = saleEnabled ? Math.max(0, Number(saleConfig?.percent || 0)) : 0;
+    const saleTopup = saleEnabled ? Math.max(0, Number(saleConfig?.topup || 0)) : 0;
+    const saleBusinessOnly = Boolean(saleConfig?.businessDaysOnly);
+
     const { settings, oneOffs, incomeStreams, adjustments } = state;
     const cal = generateCalendar(settings.startDate, settings.endDate);
     const recurring = oneOffs.filter((tx) => tx && typeof tx === "object" && tx.recurring);
@@ -1829,10 +1939,15 @@ const shim = {
         const amount = resolveRecurringAmount(st, d, prev);
         if (amount) {
           const absAmount = Math.abs(amount);
-          row.income += absAmount;
           const label = describeNameAndCategory(st, "Income Stream");
-          row.incomeDetails.push({ source: label, amount: absAmount });
-          totalStreamIncome += absAmount;
+          const multiplierValue = Number(getStreamMultiplier(st, absAmount, row.date));
+          const appliedMultiplier = Number.isFinite(multiplierValue) ? Math.max(0, multiplierValue) : 1;
+          const adjustedAmount = round2(absAmount * appliedMultiplier);
+          if (adjustedAmount) {
+            row.income += adjustedAmount;
+            row.incomeDetails.push({ source: label, amount: adjustedAmount });
+            totalStreamIncome += adjustedAmount;
+          }
         }
         incomeLastOccurrence.set(key, new Date(d.getTime()));
       }
@@ -1898,8 +2013,34 @@ const shim = {
     let negativeDays = 0;
 
     for (const row of cal) {
-      row.net = row.income - row.expenses;
-      running += row.net;
+      if (
+        saleEnabled &&
+        compareYMD(row.date, saleStart) >= 0 &&
+        compareYMD(row.date, saleEnd) <= 0
+      ) {
+        const dow = fromYMD(row.date).getDay();
+        const isBusinessDay = dow >= 1 && dow <= 5;
+        if (!saleBusinessOnly || isBusinessDay) {
+          if (saleMode === "topup") {
+            const boost = round2(saleTopup);
+            if (boost) {
+              row.income += boost;
+              row.incomeDetails.push({ source: "Sale top-up", amount: boost });
+            }
+          } else if (salePercent > 0) {
+            const boost = round2(row.income * salePercent);
+            if (boost) {
+              row.income += boost;
+              row.incomeDetails.push({ source: "Sale uplift", amount: boost });
+            }
+          }
+        }
+      }
+
+      row.income = round2(row.income);
+      row.expenses = round2(row.expenses);
+      row.net = round2(row.income - row.expenses);
+      running = round2(running + row.net);
       row.running = running;
       totalIncome += row.income;
       totalExpenses += row.expenses;
@@ -2697,6 +2838,71 @@ const shim = {
 
   // Chart + upcoming table + KPIs
   let balanceChart;
+  let whatIfChart;
+  let whatIfRenderPending = false;
+
+  const scheduleWhatIfRender = () => {
+    if (whatIfRenderPending) return;
+    whatIfRenderPending = true;
+    const raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (cb) => setTimeout(cb, 0);
+    raf(() => {
+      whatIfRenderPending = false;
+      renderWhatIf();
+    });
+  };
+
+  const formatMultiplierLabel = (value) => {
+    const normalized = clampMultiplier(value, 1);
+    return `${normalized.toFixed(2)}×`;
+  };
+
+  const formatMoneyDelta = (delta) => {
+    const num = Number(delta);
+    if (!Number.isFinite(num) || Math.abs(num) < 0.005) return "$0.00";
+    const abs = fmtMoney(Math.abs(num));
+    return num > 0 ? `+${abs}` : `-${abs}`;
+  };
+
+  const formatNumberDelta = (delta) => {
+    const num = Number(delta);
+    if (!Number.isFinite(num) || Math.abs(num) < 0.5) return "0";
+    const rounded = Math.round(num);
+    return rounded > 0 ? `+${rounded}` : String(rounded);
+  };
+
+  const applyDeltaClass = (el, delta, { positiveIsGood = true } = {}) => {
+    if (!el) return;
+    let className = "delta-neutral";
+    const num = Number(delta);
+    if (!Number.isFinite(num)) {
+      const isPositive = delta === Number.POSITIVE_INFINITY;
+      const isGood = isPositive ? positiveIsGood : !positiveIsGood;
+      className = isGood ? "delta-positive" : "delta-negative";
+    } else if (Math.abs(num) >= 0.005) {
+      const isPositive = num > 0;
+      const isGood = isPositive ? positiveIsGood : !positiveIsGood;
+      className = isGood ? "delta-positive" : "delta-negative";
+    }
+    el.classList.remove("delta-positive", "delta-negative", "delta-neutral");
+    el.classList.add(className);
+  };
+
+  const describeFirstNegative = (ymd) => (ymd ? fmtDate(ymd) : "—");
+
+  const describeFirstNegativeDelta = (actual, scenario) => {
+    if (!actual && !scenario) return { text: "No change", delta: 0 };
+    if (!actual && scenario) return { text: `New: ${fmtDate(scenario)}`, delta: Number.NEGATIVE_INFINITY };
+    if (actual && !scenario) return { text: "Cleared", delta: Number.POSITIVE_INFINITY };
+    const actualDate = fromYMD(actual);
+    const scenarioDate = fromYMD(scenario);
+    if (Number.isNaN(actualDate.getTime()) || Number.isNaN(scenarioDate.getTime())) {
+      return { text: "—", delta: 0 };
+    }
+    const diff = Math.round((scenarioDate - actualDate) / 86400000);
+    if (diff === 0) return { text: "Same day", delta: 0 };
+    const abs = Math.abs(diff);
+    return { text: `${diff > 0 ? "+" : "-"}${abs} days`, delta: diff };
+  };
 
   const renderDashboard = () => {
     const {
@@ -2838,8 +3044,465 @@ const shim = {
     }
   };
 
+  const renderWhatIf = () => {
+    const panel = $("#whatif");
+    if (!panel) return;
+
+    const prevKeys =
+      WHATIF?.tweaks?.streamMultipliers && typeof WHATIF.tweaks.streamMultipliers === "object"
+        ? Object.keys(WHATIF.tweaks.streamMultipliers)
+        : [];
+    const sanitized = sanitizeWhatIfState(WHATIF, STATE);
+    WHATIF = sanitized;
+    const nextKeys =
+      WHATIF?.tweaks?.streamMultipliers && typeof WHATIF.tweaks.streamMultipliers === "object"
+        ? Object.keys(WHATIF.tweaks.streamMultipliers)
+        : [];
+    if (nextKeys.length !== prevKeys.length) {
+      saveWhatIf(WHATIF);
+    }
+
+    const tweaks = WHATIF.tweaks || {};
+    const baseState = cloneStateForSandbox(WHATIF.base);
+    const startDate = isValidYMDString(tweaks.startDate) ? tweaks.startDate : baseState.settings.startDate;
+    let endDate = isValidYMDString(tweaks.endDate) ? tweaks.endDate : baseState.settings.endDate;
+    if (compareYMD(startDate, endDate) > 0) endDate = startDate;
+    baseState.settings = { ...baseState.settings, startDate, endDate };
+
+    const globalMultiplier = clampMultiplier(tweaks.globalMultiplier ?? 1, 1);
+    const streamMultipliers = tweaks.streamMultipliers || {};
+    const saleTweaks = tweaks.sale || { enabled: false };
+
+    const actualProjection = computeProjection(STATE);
+    const whatIfProjection = computeProjection(baseState, {
+      getStreamMultiplier: (stream) => {
+        const streamId = typeof stream.id === "string" ? stream.id : String(stream.id || "");
+        const perMultiplier = clampMultiplier(streamMultipliers[streamId], 1);
+        const combined = Number(globalMultiplier) * perMultiplier;
+        return Number.isFinite(combined) && combined >= 0 ? combined : 0;
+      },
+      sale: saleTweaks,
+    });
+
+    const whatIfEndBalanceEl = $("#whatifEndBalance");
+    if (whatIfEndBalanceEl) whatIfEndBalanceEl.textContent = fmtMoney(whatIfProjection.endBalance);
+    const endActualEl = $("#whatifEndBalanceActual");
+    if (endActualEl) endActualEl.textContent = `Actual: ${fmtMoney(actualProjection.endBalance)}`;
+    const endDelta = whatIfProjection.endBalance - actualProjection.endBalance;
+    const endDeltaEl = $("#whatifEndBalanceDelta");
+    if (endDeltaEl) {
+      endDeltaEl.textContent = formatMoneyDelta(endDelta);
+      applyDeltaClass(endDeltaEl, endDelta, { positiveIsGood: true });
+    }
+
+    const whatIfIncomeEl = $("#whatifTotalIncome");
+    if (whatIfIncomeEl) whatIfIncomeEl.textContent = fmtMoney(whatIfProjection.totalIncome);
+    const incomeActualEl = $("#whatifTotalIncomeActual");
+    if (incomeActualEl) incomeActualEl.textContent = `Actual: ${fmtMoney(actualProjection.totalIncome)}`;
+
+    const whatIfWeeklyEl = $("#whatifWeeklyIncome");
+    if (whatIfWeeklyEl) whatIfWeeklyEl.textContent = fmtMoney(whatIfProjection.projectedWeeklyIncome);
+    const weeklyActualEl = $("#whatifWeeklyIncomeActual");
+    if (weeklyActualEl) weeklyActualEl.textContent = `Actual: ${fmtMoney(actualProjection.projectedWeeklyIncome)}`;
+
+    const whatIfExpensesEl = $("#whatifTotalExpenses");
+    if (whatIfExpensesEl) whatIfExpensesEl.textContent = fmtMoney(whatIfProjection.totalExpenses);
+    const expensesActualEl = $("#whatifTotalExpensesActual");
+    if (expensesActualEl) expensesActualEl.textContent = `Actual: ${fmtMoney(actualProjection.totalExpenses)}`;
+
+    const whatIfLowestEl = $("#whatifLowestBalance");
+    if (whatIfLowestEl) whatIfLowestEl.textContent = fmtMoney(whatIfProjection.lowestBalance);
+    const lowestActualEl = $("#whatifLowestBalanceActual");
+    if (lowestActualEl) lowestActualEl.textContent = `Actual: ${fmtMoney(actualProjection.lowestBalance)}`;
+    const lowestDelta = whatIfProjection.lowestBalance - actualProjection.lowestBalance;
+    const lowestDeltaEl = $("#whatifLowestBalanceDelta");
+    if (lowestDeltaEl) {
+      lowestDeltaEl.textContent = formatMoneyDelta(lowestDelta);
+      applyDeltaClass(lowestDeltaEl, lowestDelta, { positiveIsGood: true });
+    }
+
+    const whatIfPeakEl = $("#whatifPeakBalance");
+    if (whatIfPeakEl) whatIfPeakEl.textContent = fmtMoney(whatIfProjection.peakBalance);
+    const peakActualEl = $("#whatifPeakBalanceActual");
+    if (peakActualEl) peakActualEl.textContent = `Actual: ${fmtMoney(actualProjection.peakBalance)}`;
+
+    const whatIfNegDaysEl = $("#whatifNegativeDays");
+    if (whatIfNegDaysEl) whatIfNegDaysEl.textContent = String(whatIfProjection.negativeDays);
+    const negActualEl = $("#whatifNegativeDaysActual");
+    if (negActualEl) negActualEl.textContent = `Actual: ${actualProjection.negativeDays}`;
+    const negDelta = whatIfProjection.negativeDays - actualProjection.negativeDays;
+    const negDeltaEl = $("#whatifNegativeDaysDelta");
+    if (negDeltaEl) {
+      negDeltaEl.textContent = formatNumberDelta(negDelta);
+      applyDeltaClass(negDeltaEl, negDelta, { positiveIsGood: false });
+    }
+
+    const firstNegativeEl = $("#whatifFirstNegative");
+    if (firstNegativeEl) firstNegativeEl.textContent = describeFirstNegative(whatIfProjection.firstNegativeDate);
+    const firstActualEl = $("#whatifFirstNegativeActual");
+    if (firstActualEl) firstActualEl.textContent = `Actual: ${describeFirstNegative(actualProjection.firstNegativeDate)}`;
+    const firstDelta = describeFirstNegativeDelta(
+      actualProjection.firstNegativeDate,
+      whatIfProjection.firstNegativeDate
+    );
+    const firstDeltaEl = $("#whatifFirstNegativeDelta");
+    if (firstDeltaEl) {
+      firstDeltaEl.textContent = firstDelta.text;
+      applyDeltaClass(firstDeltaEl, firstDelta.delta, { positiveIsGood: true });
+    }
+
+    const startInput = $("#whatifStartDate");
+    if (startInput && document.activeElement !== startInput) startInput.value = startDate || "";
+    const endInput = $("#whatifEndDate");
+    if (endInput && document.activeElement !== endInput) endInput.value = endDate || "";
+
+    const globalSlider = $("#whatifGlobalMultiplier");
+    if (globalSlider && document.activeElement !== globalSlider) globalSlider.value = String(globalMultiplier);
+    const globalLabel = $("#whatifGlobalMultiplierValue");
+    if (globalLabel) globalLabel.textContent = formatMultiplierLabel(globalMultiplier);
+
+    const streamContainer = $("#whatifStreamMultipliers");
+    if (streamContainer) {
+      const streams = Array.isArray(WHATIF.base?.incomeStreams) ? WHATIF.base.incomeStreams : [];
+      if (!streams.length) {
+        streamContainer.innerHTML = "<p class=\"whatif-streams-empty\">No recurring income streams in sandbox.</p>";
+      } else {
+        if (streamContainer.firstElementChild?.classList.contains("whatif-streams-empty")) {
+          streamContainer.innerHTML = "";
+        }
+        const existing = new Map();
+        streamContainer.querySelectorAll("[data-stream-wrapper]").forEach((el) => {
+          existing.set(el.getAttribute("data-stream-wrapper"), el);
+        });
+        for (const stream of streams) {
+          if (!stream || typeof stream !== "object") continue;
+          const streamId = typeof stream.id === "string" ? stream.id : String(stream.id || "");
+          const multiplierValue = clampMultiplier(streamMultipliers[streamId], 1);
+          let wrapper = existing.get(streamId);
+          if (!wrapper) {
+            wrapper = document.createElement("div");
+            wrapper.className = "whatif-stream";
+            wrapper.dataset.streamWrapper = streamId;
+            const label = document.createElement("label");
+            label.setAttribute("for", `whatifStream-${streamId}`);
+            const nameSpan = document.createElement("span");
+            nameSpan.className = "stream-name";
+            const valueSpan = document.createElement("span");
+            valueSpan.className = "stream-multiplier";
+            valueSpan.dataset.streamMultiplier = streamId;
+            label.appendChild(nameSpan);
+            label.appendChild(valueSpan);
+            const input = document.createElement("input");
+            input.type = "range";
+            input.min = "0";
+            input.max = "2";
+            input.step = "0.05";
+            input.dataset.streamId = streamId;
+            input.id = `whatifStream-${streamId}`;
+            wrapper.appendChild(label);
+            wrapper.appendChild(input);
+            streamContainer.appendChild(wrapper);
+          }
+          const nameSpan = wrapper.querySelector(".stream-name");
+          if (nameSpan) nameSpan.textContent = describeNameAndCategory(stream, "Income Stream");
+          const valueSpan = wrapper.querySelector(`[data-stream-multiplier='${streamId}']`);
+          if (valueSpan) valueSpan.textContent = formatMultiplierLabel(multiplierValue);
+          const slider = wrapper.querySelector("input[type='range']");
+          if (slider && document.activeElement !== slider) slider.value = String(multiplierValue);
+          existing.delete(streamId);
+        }
+        existing.forEach((el) => el.remove());
+      }
+    }
+
+    const saleEnabledEl = $("#whatifSaleEnabled");
+    if (saleEnabledEl) saleEnabledEl.checked = Boolean(saleTweaks.enabled);
+    const saleOptions = $("#whatifSaleOptions");
+    if (saleOptions) saleOptions.hidden = !saleTweaks.enabled;
+    $$("input[name='whatifSaleMode']").forEach((input) => {
+      input.checked = input.value === (saleTweaks.mode === "topup" ? "topup" : "percent");
+    });
+    const percentWrapper = saleOptions?.querySelector("[data-sale-mode='percent']");
+    if (percentWrapper) percentWrapper.hidden = saleTweaks.mode === "topup";
+    const topupWrapper = saleOptions?.querySelector("[data-sale-mode='topup']");
+    if (topupWrapper) topupWrapper.hidden = saleTweaks.mode !== "topup";
+    const percentField = $("#whatifSalePercent");
+    if (percentField && document.activeElement !== percentField) {
+      const percentValue = Math.max(0, Number(saleTweaks.percent || 0));
+      const percentDisplay = Math.round(percentValue * 1000) / 10;
+      let percentStr = "0";
+      if (Number.isFinite(percentDisplay)) {
+        percentStr = Math.abs(percentDisplay % 1) < 0.05 ? percentDisplay.toFixed(0) : percentDisplay.toFixed(1);
+      }
+      percentField.value = percentStr;
+    }
+    const topupField = $("#whatifSaleTopup");
+    if (topupField && document.activeElement !== topupField) {
+      topupField.value = String(round2(saleTweaks.topup || 0));
+    }
+    const saleStartInput = $("#whatifSaleStart");
+    if (saleStartInput && document.activeElement !== saleStartInput) {
+      saleStartInput.value = saleTweaks.startDate || startDate || "";
+    }
+    const saleEndInput = $("#whatifSaleEnd");
+    if (saleEndInput && document.activeElement !== saleEndInput) {
+      saleEndInput.value = saleTweaks.endDate || saleTweaks.startDate || "";
+    }
+    const saleBusinessInput = $("#whatifSaleBusinessDays");
+    if (saleBusinessInput) saleBusinessInput.checked = Boolean(saleTweaks.businessDaysOnly);
+
+    const chartCanvas = $("#whatifChart");
+    if (chartCanvas) {
+      const existingChart = typeof Chart?.getChart === "function" ? Chart.getChart(chartCanvas) : null;
+      if (existingChart) existingChart.destroy();
+      if (whatIfChart) {
+        whatIfChart.destroy();
+        whatIfChart = undefined;
+      }
+      const actualMap = new Map();
+      const sandboxMap = new Map();
+      for (const row of actualProjection.cal || []) {
+        actualMap.set(row.date, round2(row.running));
+      }
+      for (const row of whatIfProjection.cal || []) {
+        sandboxMap.set(row.date, round2(row.running));
+      }
+      const labels = Array.from(new Set([...actualMap.keys(), ...sandboxMap.keys()])).sort((a, b) => compareYMD(a, b));
+      const actualData = labels.map((date) => (actualMap.has(date) ? round2(actualMap.get(date)) : null));
+      const sandboxData = labels.map((date) => (sandboxMap.has(date) ? round2(sandboxMap.get(date)) : null));
+      const ctx = chartCanvas.getContext("2d");
+      whatIfChart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            {
+              label: "Actual Projection",
+              data: actualData,
+              borderColor: "#94a3b8",
+              backgroundColor: "rgba(148, 163, 184, 0.18)",
+              borderWidth: 2,
+              pointRadius: 0,
+              tension: 0.25,
+              borderDash: [6, 4],
+              spanGaps: false,
+            },
+            {
+              label: "What-If Projection",
+              data: sandboxData,
+              borderColor: "#5F7BFF",
+              backgroundColor: "rgba(95, 123, 255, 0.2)",
+              borderWidth: 2,
+              pointRadius: 0,
+              tension: 0.25,
+              spanGaps: false,
+            },
+          ],
+        },
+        options: {
+          interaction: { intersect: false, mode: "index" },
+          plugins: { legend: { display: true } },
+          scales: {
+            x: { ticks: { maxTicksLimit: 10 } },
+            y: {
+              beginAtZero: false,
+              grid: {
+                color: (ctx) => {
+                  const value = ctx.tick && typeof ctx.tick.value === "number" ? ctx.tick.value : null;
+                  return value === 0 ? "#0f172a" : "rgba(148, 163, 184, 0.2)";
+                },
+                lineWidth: (ctx) => {
+                  const value = ctx.tick && typeof ctx.tick.value === "number" ? ctx.tick.value : null;
+                  return value === 0 ? 2 : 1;
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    const tableBody = $("#whatifTable tbody");
+    if (tableBody) {
+      tableBody.innerHTML = "";
+      const rows = (whatIfProjection.cal || [])
+        .filter((row) => compareYMD(row.date, startDate) >= 0)
+        .slice(0, 30);
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${row.date}</td>
+          <td class="num">${fmtMoney(row.income)}</td>
+          <td class="num">${fmtMoney(row.expenses)}</td>
+          <td class="num">${fmtMoney(row.net)}</td>
+          <td class="num">${fmtMoney(row.running)}</td>
+        `;
+        tableBody.appendChild(tr);
+      }
+    }
+    const tableStartLabel = $("#whatifTableStart");
+    if (tableStartLabel) tableStartLabel.textContent = startDate ? fmtDate(startDate) : "—";
+  };
+
+  const bindWhatIf = () => {
+    $("#whatifPullBtn")?.addEventListener("click", () => {
+      WHATIF = sanitizeWhatIfState({ base: STATE }, STATE);
+      saveWhatIf(WHATIF);
+      renderWhatIf();
+    });
+
+    $("#whatifExportBtn")?.addEventListener("click", () => {
+      const blob = new Blob([JSON.stringify(WHATIF, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "cashflow-whatif.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    const importDialog = $("#whatifImportDialog");
+    $("#whatifImportBtn")?.addEventListener("click", () => importDialog?.showModal());
+    $("#confirmWhatifImportBtn")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      try {
+        const payload = JSON.parse($("#whatifImportText").value);
+        WHATIF = sanitizeWhatIfState(payload, STATE);
+        saveWhatIf(WHATIF);
+        importDialog?.close();
+        renderWhatIf();
+      } catch (err) {
+        const message = err && err.message ? err.message : String(err);
+        alert("Import failed: " + message);
+      }
+    });
+    importDialog?.addEventListener("close", () => {
+      const field = $("#whatifImportText");
+      if (field) field.value = "";
+    });
+
+    const startInput = $("#whatifStartDate");
+    startInput?.addEventListener("change", (e) => {
+      const value = e.target.value;
+      if (!isValidYMDString(value)) {
+        e.target.value = WHATIF.tweaks.startDate || "";
+        return;
+      }
+      WHATIF.tweaks.startDate = value;
+      if (!isValidYMDString(WHATIF.tweaks.endDate) || compareYMD(WHATIF.tweaks.startDate, WHATIF.tweaks.endDate) > 0) {
+        WHATIF.tweaks.endDate = WHATIF.tweaks.startDate;
+      }
+      saveWhatIf(WHATIF);
+      renderWhatIf();
+    });
+
+    const endInput = $("#whatifEndDate");
+    endInput?.addEventListener("change", (e) => {
+      const value = e.target.value;
+      if (!isValidYMDString(value)) {
+        e.target.value = WHATIF.tweaks.endDate || "";
+        return;
+      }
+      WHATIF.tweaks.endDate = value;
+      if (isValidYMDString(WHATIF.tweaks.startDate) && compareYMD(WHATIF.tweaks.startDate, WHATIF.tweaks.endDate) > 0) {
+        WHATIF.tweaks.startDate = WHATIF.tweaks.endDate;
+      }
+      saveWhatIf(WHATIF);
+      renderWhatIf();
+    });
+
+    const globalSlider = $("#whatifGlobalMultiplier");
+    globalSlider?.addEventListener("input", (e) => {
+      const value = clampMultiplier(e.target.value, WHATIF.tweaks.globalMultiplier ?? 1);
+      WHATIF.tweaks.globalMultiplier = value;
+      saveWhatIf(WHATIF);
+      scheduleWhatIfRender();
+    });
+
+    const streamContainer = $("#whatifStreamMultipliers");
+    streamContainer?.addEventListener("input", (e) => {
+      const slider = e.target.closest("input[type='range'][data-stream-id]");
+      if (!slider) return;
+      const { streamId } = slider.dataset;
+      if (!streamId) return;
+      const value = clampMultiplier(slider.value, WHATIF.tweaks.streamMultipliers?.[streamId] ?? 1);
+      slider.value = value;
+      if (!WHATIF.tweaks.streamMultipliers) WHATIF.tweaks.streamMultipliers = {};
+      WHATIF.tweaks.streamMultipliers[streamId] = value;
+      saveWhatIf(WHATIF);
+      scheduleWhatIfRender();
+    });
+
+    $("#whatifSaleEnabled")?.addEventListener("change", (e) => {
+      WHATIF.tweaks.sale.enabled = Boolean(e.target.checked);
+      saveWhatIf(WHATIF);
+      renderWhatIf();
+    });
+
+    $$("input[name='whatifSaleMode']").forEach((input) => {
+      input.addEventListener("change", (e) => {
+        if (!e.target.checked) return;
+        WHATIF.tweaks.sale.mode = e.target.value === "topup" ? "topup" : "percent";
+        saveWhatIf(WHATIF);
+        renderWhatIf();
+      });
+    });
+
+    $("#whatifSalePercent")?.addEventListener("change", (e) => {
+      const raw = Number(e.target.value);
+      const normalized = Number.isFinite(raw) ? Math.max(0, raw) / 100 : 0;
+      WHATIF.tweaks.sale.percent = normalized;
+      saveWhatIf(WHATIF);
+      renderWhatIf();
+    });
+
+    $("#whatifSaleTopup")?.addEventListener("change", (e) => {
+      const raw = Number(e.target.value);
+      const normalized = Number.isFinite(raw) ? Math.max(0, raw) : 0;
+      WHATIF.tweaks.sale.topup = normalized;
+      saveWhatIf(WHATIF);
+      renderWhatIf();
+    });
+
+    $("#whatifSaleStart")?.addEventListener("change", (e) => {
+      const value = e.target.value;
+      if (!isValidYMDString(value)) {
+        e.target.value = WHATIF.tweaks.sale.startDate || WHATIF.tweaks.startDate || "";
+        return;
+      }
+      WHATIF.tweaks.sale.startDate = value;
+      if (!isValidYMDString(WHATIF.tweaks.sale.endDate) || compareYMD(WHATIF.tweaks.sale.startDate, WHATIF.tweaks.sale.endDate) > 0) {
+        WHATIF.tweaks.sale.endDate = WHATIF.tweaks.sale.startDate;
+      }
+      saveWhatIf(WHATIF);
+      renderWhatIf();
+    });
+
+    $("#whatifSaleEnd")?.addEventListener("change", (e) => {
+      const value = e.target.value;
+      if (!isValidYMDString(value)) {
+        e.target.value = WHATIF.tweaks.sale.endDate || WHATIF.tweaks.sale.startDate || "";
+        return;
+      }
+      WHATIF.tweaks.sale.endDate = value;
+      if (isValidYMDString(WHATIF.tweaks.sale.startDate) && compareYMD(WHATIF.tweaks.sale.startDate, WHATIF.tweaks.sale.endDate) > 0) {
+        WHATIF.tweaks.sale.startDate = WHATIF.tweaks.sale.endDate;
+      }
+      saveWhatIf(WHATIF);
+      renderWhatIf();
+    });
+
+    $("#whatifSaleBusinessDays")?.addEventListener("change", (e) => {
+      WHATIF.tweaks.sale.businessDaysOnly = Boolean(e.target.checked);
+      saveWhatIf(WHATIF);
+      renderWhatIf();
+    });
+  };
+
+
   const recalcAndRender = () => {
     renderDashboard();
+    renderWhatIf();
     renderAdjustments();
     renderOneOffs();
     renderStreams();
@@ -3071,6 +3734,7 @@ const shim = {
     bindAdjustments();
     bindOneOffs();
     bindStreams();
+    bindWhatIf();
     initARImporter();
 
     // Ensure defaults if missing
