@@ -215,31 +215,48 @@
             </div>
           </div>
 
-          <div class="whatif-control-block">
-            <h3>Weekly Income Tweaks</h3>
-            <div class="whatif-slider">
-              <label for="whatifGlobalMultiplier">All Streams Multiplier <span id="whatifGlobalMultiplierValue" class="multiplier-value">1.00×</span></label>
-              <input id="whatifGlobalMultiplier" type="range" min="0" max="2" step="0.05" value="1" />
+          <div class="whatif-control-block whatif-global-block">
+            <h3>Global Tweaks</h3>
+            <div class="whatif-global-grid">
+              <label class="whatif-fields">
+                <span>% tweak</span>
+                <div class="whatif-percent-inputs">
+                  <input id="whatifGlobalPct" type="number" min="-100" max="200" step="1" />
+                  <input id="whatifGlobalPctSlider" type="range" min="-100" max="200" step="1" />
+                </div>
+              </label>
+              <label class="whatif-fields">
+                <span>$ tweak</span>
+                <input id="whatifGlobalDelta" type="number" step="0.01" />
+              </label>
+              <label class="whatif-fields">
+                <span>Effective on $100 base</span>
+                <input id="whatifGlobalEffective" type="number" step="0.01" />
+              </label>
             </div>
-            <div id="whatifStreamMultipliers" class="whatif-streams"></div>
+            <div id="whatifGlobalSummary" class="whatif-global-summary"></div>
+          </div>
+
+          <div class="whatif-control-block">
+            <h3>Per-Stream Tweaks</h3>
+            <div id="whatifStreams" class="whatif-streams"></div>
           </div>
 
           <div class="whatif-control-block">
             <h3>Sale Simulator</h3>
             <label class="whatif-toggle"><input id="whatifSaleEnabled" type="checkbox" /> Enable Sale Scenario</label>
             <div id="whatifSaleOptions" class="whatif-sale-options">
-              <div class="whatif-sale-modes">
-                <label><input type="radio" name="whatifSaleMode" value="percent" checked /> % uplift to all income</label>
-                <label><input type="radio" name="whatifSaleMode" value="topup" /> Daily top-up ($)</label>
+              <div class="whatif-sale-grid">
+                <label class="whatif-fields">
+                  <span>% uplift</span>
+                  <input id="whatifSalePercent" type="number" step="1" min="-100" max="500" />
+                </label>
+                <label class="whatif-fields">
+                  <span>$ top-up per day</span>
+                  <input id="whatifSaleTopup" type="number" step="0.01" />
+                </label>
               </div>
-              <div class="whatif-fields" data-sale-mode="percent">
-                <label for="whatifSalePercent">Percent uplift</label>
-                <input id="whatifSalePercent" type="number" step="0.1" min="0" value="15" />
-              </div>
-              <div class="whatif-fields" data-sale-mode="topup">
-                <label for="whatifSaleTopup">Daily top-up ($)</label>
-                <input id="whatifSaleTopup" type="number" step="1" value="0" />
-              </div>
+              <div id="whatifSaleModeLabel" class="whatif-sale-mode-label"></div>
               <div class="whatif-inline">
                 <div class="whatif-fields">
                   <label for="whatifSaleStart">Start</label>
