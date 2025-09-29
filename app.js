@@ -1089,9 +1089,188 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     return `${normCompany}#${normInvoice}`;
   };
 
+  const findInvoiceFromText = (text) => {
+    if (!text) return "";
+    const str = String(text);
+    const patterns = [
+      /INV(?:OICE)?\s*(?:NUMBER|NO\.|NUM|#|:)?\s*([A-Z0-9-]+)/i,
+      /#\s*([A-Z0-9-]{3,})/g,
+    ];
+    for (const pattern of patterns) {
+      if (pattern.global) {
+        let match = null;
+        while ((match = pattern.exec(str))) {
+          if (match && match[1]) {
+            const candidate = normalizeInvoiceKey(match[1]);
+            if (candidate) return candidate;
+          }
+        }
+        continue;
+      }
+      const match = pattern.exec(str);
+      if (match && match[1]) {
+        const candidate = normalizeInvoiceKey(match[1]);
+        if (candidate) return candidate;
+      }
+    }
+    return "";
+  };
+
+  const findCompanyFromName = (text) => {
+    if (!text) return "";
+    const str = String(text);
+    const match = str.match(/\(([^)]+)\)/);
+    if (match && match[1]) {
+      const normalized = normalizeCompanyKey(match[1]);
+      if (normalized) return normalized;
+    }
+    const invoiceLead = str.match(/^(.*?)(?:INV(?:OICE)?\b|#)/i);
+    if (invoiceLead && invoiceLead[1]) {
+      let candidate = invoiceLead[1].trim();
+      candidate = candidate.replace(/^income\s*/i, "");
+      candidate = candidate.replace(/^[^A-Z0-9]+/i, "");
+      candidate = candidate.replace(/[^A-Z0-9]+$/i, "");
+      const normalized = normalizeCompanyKey(candidate);
+      if (normalized && normalized !== "INCOME") return normalized;
+    }
+    return "";
+  };
+
+  const deriveCashMovementKey = (entry) => {
+    if (!entry) return null;
+    if (entry.sourceKey) return entry.sourceKey;
+
+    const companyCandidates = [];
+    const pushCompany = (value) => {
+      const normalized = normalizeCompanyKey(value);
+      if (normalized) companyCandidates.push(normalized);
+    };
+    pushCompany(entry.company);
+    pushCompany(entry.customer);
+    pushCompany(entry.customerName);
+    pushCompany(entry.client);
+    pushCompany(entry.clientName);
+    pushCompany(entry.vendor);
+    if (entry.name) {
+      const fromName = findCompanyFromName(entry.name);
+      if (fromName) companyCandidates.push(fromName);
+    }
+
+    const invoiceCandidates = [];
+    const pushInvoice = (value) => {
+      const normalized = normalizeInvoiceKey(value);
+      if (normalized && /\d/.test(normalized)) invoiceCandidates.push(normalized);
+    };
+    pushInvoice(entry.invoice);
+    pushInvoice(entry.invoiceNumber);
+    pushInvoice(entry.reference);
+    pushInvoice(entry.ref);
+    pushInvoice(entry.poNumber);
+    pushInvoice(entry.po);
+    pushInvoice(entry.note);
+    pushInvoice(entry.description);
+    if (entry.name) {
+      const fromName = findInvoiceFromText(entry.name);
+      if (fromName) invoiceCandidates.push(fromName);
+    }
+
+    const uniqueCompanies = [...new Set(companyCandidates.filter(Boolean))];
+    const uniqueInvoices = [...new Set(invoiceCandidates.filter(Boolean))];
+
+    for (const company of uniqueCompanies) {
+      for (const invoice of uniqueInvoices) {
+        const key = makeSourceKey(company, invoice);
+        if (key) return key;
+      }
+    }
+
+    const invoiceOnly = uniqueInvoices[0];
+    if (!invoiceOnly) return null;
+    const amount = Math.abs(Number(entry.amount) || 0);
+    const amountKey = amount ? String(round2(amount)) : "0";
+    const dateKey = entry.date || entry.expectedDate || entry.dueDate || "";
+    return `INVONLY#${invoiceOnly}#${amountKey}#${normalizeInvoiceKey(dateKey)}`;
+  };
+
   const findOneOffBySourceKey = (key) => {
     if (!key) return undefined;
     return (STATE.oneOffs || []).find((tx) => tx && tx.source === "AR" && tx.sourceKey === key);
+  };
+
+  const scoreCashMovementStatus = (entry) => {
+    if (!entry || entry.status === "archived") return 0;
+    return 1;
+  };
+
+  const parseLastSeenAt = (value) => {
+    if (!value) return 0;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const pickPreferredCashMovement = (current, candidate) => {
+    if (!current) return candidate;
+    if (!candidate) return current;
+
+    const currentStatus = scoreCashMovementStatus(current);
+    const candidateStatus = scoreCashMovementStatus(candidate);
+    if (candidateStatus > currentStatus) return candidate;
+    if (candidateStatus < currentStatus) return current;
+
+    const currentSeen = parseLastSeenAt(current.lastSeenAt);
+    const candidateSeen = parseLastSeenAt(candidate.lastSeenAt);
+    if (candidateSeen > currentSeen) return candidate;
+    if (candidateSeen < currentSeen) return current;
+
+    const dateCompare = compareYMD(candidate.date, current.date);
+    if (dateCompare > 0) return candidate;
+    if (dateCompare < 0) return current;
+
+    const currentAmount = Math.abs(Number(current.amount) || 0);
+    const candidateAmount = Math.abs(Number(candidate.amount) || 0);
+    if (candidateAmount > currentAmount) return candidate;
+    if (candidateAmount < currentAmount) return current;
+
+    return current;
+  };
+
+  const detectDuplicateCashMovements = () => {
+    const entries = Array.isArray(STATE.oneOffs) ? STATE.oneOffs : [];
+    const groups = new Map();
+
+    for (const entry of entries) {
+      if (!entry) continue;
+      const isARSource = entry.source === "AR" || Boolean(entry.sourceKey);
+      const arCategory = typeof entry.category === "string" && entry.category.toLowerCase().startsWith("ar");
+      if (!isARSource && !arCategory) continue;
+
+      const key = deriveCashMovementKey(entry);
+      if (!key) continue;
+      if (!entry.sourceKey && !key.startsWith("INVONLY#")) {
+        entry.sourceKey = key;
+      }
+      if (!groups.has(key)) {
+        groups.set(key, [entry]);
+      } else {
+        groups.get(key).push(entry);
+      }
+    }
+
+    const removal = [];
+    for (const [, list] of groups.entries()) {
+      if (!Array.isArray(list) || list.length <= 1) continue;
+      let keep = list[0];
+      for (let i = 1; i < list.length; i += 1) {
+        keep = pickPreferredCashMovement(keep, list[i]);
+      }
+      for (const entry of list) {
+        if (entry !== keep) {
+          removal.push(entry);
+        }
+      }
+    }
+
+    return { removal };
   };
 
   const defaultAROptions = () => ({ roll: "forward", lag: 0, conf: 100, category: "AR", prune: false });
@@ -3075,6 +3254,24 @@ const shim = {
       if (endInput && !endInput.value) endInput.value = baseDate;
     });
     showTransactionFreqBlocks();
+
+    const dedupeBtn = $("#dedupeCashBtn");
+    dedupeBtn?.addEventListener("click", () => {
+      const { removal } = detectDuplicateCashMovements();
+      const removalCount = Array.isArray(removal) ? removal.length : 0;
+      if (!removalCount) {
+        alert("No duplicate AR invoices detected.");
+        return;
+      }
+      const confirmMessage = `Remove ${fmtCount(removalCount)} duplicate ${removalCount === 1 ? "entry" : "entries"}?`;
+      if (!window.confirm(confirmMessage)) return;
+
+      const removalSet = new Set(removal);
+      STATE.oneOffs = (STATE.oneOffs || []).filter((entry) => !removalSet.has(entry));
+      save(STATE);
+      recalcAndRender();
+      alert(`${fmtCount(removalCount)} duplicate ${removalCount === 1 ? "entry" : "entries"} removed.`);
+    });
 
     form.addEventListener("submit", (e) => {
       e.preventDefault();
