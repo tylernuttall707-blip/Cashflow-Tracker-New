@@ -1094,6 +1094,75 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     return (STATE.oneOffs || []).find((tx) => tx && tx.source === "AR" && tx.sourceKey === key);
   };
 
+  const scoreCashMovementStatus = (entry) => {
+    if (!entry || entry.status === "archived") return 0;
+    return 1;
+  };
+
+  const parseLastSeenAt = (value) => {
+    if (!value) return 0;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const pickPreferredCashMovement = (current, candidate) => {
+    if (!current) return candidate;
+    if (!candidate) return current;
+
+    const currentStatus = scoreCashMovementStatus(current);
+    const candidateStatus = scoreCashMovementStatus(candidate);
+    if (candidateStatus > currentStatus) return candidate;
+    if (candidateStatus < currentStatus) return current;
+
+    const currentSeen = parseLastSeenAt(current.lastSeenAt);
+    const candidateSeen = parseLastSeenAt(candidate.lastSeenAt);
+    if (candidateSeen > currentSeen) return candidate;
+    if (candidateSeen < currentSeen) return current;
+
+    const dateCompare = compareYMD(candidate.date, current.date);
+    if (dateCompare > 0) return candidate;
+    if (dateCompare < 0) return current;
+
+    const currentAmount = Math.abs(Number(current.amount) || 0);
+    const candidateAmount = Math.abs(Number(candidate.amount) || 0);
+    if (candidateAmount > currentAmount) return candidate;
+    if (candidateAmount < currentAmount) return current;
+
+    return current;
+  };
+
+  const detectDuplicateCashMovements = () => {
+    const entries = Array.isArray(STATE.oneOffs) ? STATE.oneOffs : [];
+    const groups = new Map();
+
+    for (const entry of entries) {
+      if (!entry || entry.source !== "AR") continue;
+      const key = entry.sourceKey || makeSourceKey(entry.company, entry.invoice);
+      if (!key) continue;
+      if (!groups.has(key)) {
+        groups.set(key, [entry]);
+      } else {
+        groups.get(key).push(entry);
+      }
+    }
+
+    const removal = [];
+    for (const [, list] of groups.entries()) {
+      if (!Array.isArray(list) || list.length <= 1) continue;
+      let keep = list[0];
+      for (let i = 1; i < list.length; i += 1) {
+        keep = pickPreferredCashMovement(keep, list[i]);
+      }
+      for (const entry of list) {
+        if (entry !== keep) {
+          removal.push(entry);
+        }
+      }
+    }
+
+    return { removal };
+  };
+
   const defaultAROptions = () => ({ roll: "forward", lag: 0, conf: 100, category: "AR", prune: false });
   const defaultARMappingOverrides = () => ({ company: "", invoice: "", due: "", amount: "" });
   const sanitizeAROptions = (value) => {
@@ -3075,6 +3144,24 @@ const shim = {
       if (endInput && !endInput.value) endInput.value = baseDate;
     });
     showTransactionFreqBlocks();
+
+    const dedupeBtn = $("#dedupeCashBtn");
+    dedupeBtn?.addEventListener("click", () => {
+      const { removal } = detectDuplicateCashMovements();
+      const removalCount = Array.isArray(removal) ? removal.length : 0;
+      if (!removalCount) {
+        alert("No duplicate AR invoices detected.");
+        return;
+      }
+      const confirmMessage = `Remove ${fmtCount(removalCount)} duplicate ${removalCount === 1 ? "entry" : "entries"}?`;
+      if (!window.confirm(confirmMessage)) return;
+
+      const removalSet = new Set(removal);
+      STATE.oneOffs = (STATE.oneOffs || []).filter((entry) => !removalSet.has(entry));
+      save(STATE);
+      recalcAndRender();
+      alert(`${fmtCount(removalCount)} duplicate ${removalCount === 1 ? "entry" : "entries"} removed.`);
+    });
 
     form.addEventListener("submit", (e) => {
       e.preventDefault();
