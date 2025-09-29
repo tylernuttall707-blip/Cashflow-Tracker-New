@@ -22,6 +22,7 @@
 
     <nav class="tabs">
       <button class="tab active" data-tab="dashboard">Dashboard</button>
+      <button class="tab" data-tab="whatif">What-If</button>
       <button class="tab" data-tab="movements">Cash Movements</button>
       <button class="tab" data-tab="income">Income Plan</button>
       <button class="tab" data-tab="receivables">Receivables (AR)</button>
@@ -137,6 +138,146 @@
             <tbody></tbody>
           </table>
         </div>
+      </div>
+    </section>
+
+    <!-- WHAT-IF SANDBOX -->
+    <section id="whatif" class="tab-panel">
+      <div class="card">
+        <div class="card-header">
+          <h2>What-If Quick Stats</h2>
+          <div class="header-actions">
+            <button id="whatifPullBtn" class="btn btn-outline">Pull from Actuals</button>
+            <button id="whatifExportBtn" class="btn btn-outline">Export What-If JSON</button>
+            <button id="whatifImportBtn" class="btn">Import What-If JSON</button>
+          </div>
+        </div>
+        <div class="kpis whatif-kpis">
+          <div class="kpi">
+            <div class="kpi-label">Projected End Balance</div>
+            <div class="kpi-value" id="whatifEndBalance">$0.00</div>
+            <div class="kpi-meta" id="whatifEndBalanceActual">Actual: $0.00</div>
+            <div class="kpi-meta">Δ vs Actual: <span id="whatifEndBalanceDelta" class="delta">$0.00</span></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Total Planned Income</div>
+            <div class="kpi-value" id="whatifTotalIncome">$0.00</div>
+            <div class="kpi-meta" id="whatifTotalIncomeActual">Actual: $0.00</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Projected Weekly Income</div>
+            <div class="kpi-value" id="whatifWeeklyIncome">$0.00</div>
+            <div class="kpi-meta" id="whatifWeeklyIncomeActual">Actual: $0.00</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Total Planned Expenses</div>
+            <div class="kpi-value" id="whatifTotalExpenses">$0.00</div>
+            <div class="kpi-meta" id="whatifTotalExpensesActual">Actual: $0.00</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Lowest Projected Balance</div>
+            <div class="kpi-value" id="whatifLowestBalance">$0.00</div>
+            <div class="kpi-meta" id="whatifLowestBalanceActual">Actual: $0.00</div>
+            <div class="kpi-meta">Δ vs Actual: <span id="whatifLowestBalanceDelta" class="delta">$0.00</span></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Peak Projected Balance</div>
+            <div class="kpi-value" id="whatifPeakBalance">$0.00</div>
+            <div class="kpi-meta" id="whatifPeakBalanceActual">Actual: $0.00</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Days Below $0</div>
+            <div class="kpi-value" id="whatifNegativeDays">0</div>
+            <div class="kpi-meta" id="whatifNegativeDaysActual">Actual: 0</div>
+            <div class="kpi-meta">Δ vs Actual: <span id="whatifNegativeDaysDelta" class="delta">0</span></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">First Negative Day</div>
+            <div class="kpi-value" id="whatifFirstNegative">—</div>
+            <div class="kpi-meta" id="whatifFirstNegativeActual">Actual: —</div>
+            <div class="kpi-meta">Δ vs Actual: <span id="whatifFirstNegativeDelta" class="delta">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>What-If Controls</h2>
+        <div class="whatif-controls">
+          <div class="whatif-control-block">
+            <h3>What-If Model Dates</h3>
+            <div class="whatif-fields">
+              <label for="whatifStartDate">Start Date</label>
+              <input id="whatifStartDate" type="date" />
+            </div>
+            <div class="whatif-fields">
+              <label for="whatifEndDate">End Date</label>
+              <input id="whatifEndDate" type="date" />
+            </div>
+          </div>
+
+          <div class="whatif-control-block">
+            <h3>Weekly Income Tweaks</h3>
+            <div class="whatif-slider">
+              <label for="whatifGlobalMultiplier">All Streams Multiplier <span id="whatifGlobalMultiplierValue" class="multiplier-value">1.00×</span></label>
+              <input id="whatifGlobalMultiplier" type="range" min="0" max="2" step="0.05" value="1" />
+            </div>
+            <div id="whatifStreamMultipliers" class="whatif-streams"></div>
+          </div>
+
+          <div class="whatif-control-block">
+            <h3>Sale Simulator</h3>
+            <label class="whatif-toggle"><input id="whatifSaleEnabled" type="checkbox" /> Enable Sale Scenario</label>
+            <div id="whatifSaleOptions" class="whatif-sale-options">
+              <div class="whatif-sale-modes">
+                <label><input type="radio" name="whatifSaleMode" value="percent" checked /> % uplift to all income</label>
+                <label><input type="radio" name="whatifSaleMode" value="topup" /> Daily top-up ($)</label>
+              </div>
+              <div class="whatif-fields" data-sale-mode="percent">
+                <label for="whatifSalePercent">Percent uplift</label>
+                <input id="whatifSalePercent" type="number" step="0.1" min="0" value="15" />
+              </div>
+              <div class="whatif-fields" data-sale-mode="topup">
+                <label for="whatifSaleTopup">Daily top-up ($)</label>
+                <input id="whatifSaleTopup" type="number" step="1" value="0" />
+              </div>
+              <div class="whatif-inline">
+                <div class="whatif-fields">
+                  <label for="whatifSaleStart">Start</label>
+                  <input id="whatifSaleStart" type="date" />
+                </div>
+                <div class="whatif-fields">
+                  <label for="whatifSaleEnd">End</label>
+                  <input id="whatifSaleEnd" type="date" />
+                </div>
+              </div>
+              <label class="whatif-toggle"><input id="whatifSaleBusinessDays" type="checkbox" /> Only apply on business days</label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Projected Balance Comparison</h2>
+        <canvas id="whatifChart" height="120"></canvas>
+      </div>
+
+      <div class="card">
+        <div class="whatif-table-header">
+          <h2>What-If 30-Day Outlook</h2>
+          <div class="whatif-table-meta">Starting from <span id="whatifTableStart">—</span></div>
+        </div>
+        <table class="table" id="whatifTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Income</th>
+              <th>Expenses</th>
+              <th>Net</th>
+              <th>Running</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
       </div>
     </section>
 
@@ -458,6 +599,18 @@
       </div>
     </section>
     </main>
+
+    <dialog id="whatifImportDialog">
+      <form method="dialog" class="form">
+        <h3>Import What-If JSON</h3>
+        <p>Paste a previously exported What-If sandbox snapshot. This will replace your current sandbox.</p>
+        <textarea id="whatifImportText" rows="10" spellcheck="false" placeholder='{"base":{...},"tweaks":{...}}'></textarea>
+        <div class="actions">
+          <button class="btn btn-outline" value="cancel">Cancel</button>
+          <button id="confirmWhatifImportBtn" class="btn" value="default">Import</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="importDialog">
       <form method="dialog" class="form">
