@@ -35,6 +35,10 @@
     if (!Number.isFinite(num)) return 0;
     return Math.round(num * 100) / 100;
   };
+  const fmtCount = (value) => {
+    const num = Number(value || 0);
+    return Number.isFinite(num) ? num.toLocaleString() : "0";
+  };
   const deepClone = (value) => {
     try {
       return JSON.parse(JSON.stringify(value));
@@ -340,6 +344,7 @@ const firstWeekday = (value, fallback = 0) => {
   // ---------- Storage ----------
   const STORAGE_KEY = "cashflow2025_v1";
   const WHATIF_STORAGE_KEY = "cashflow2025_whatif_v1";
+  const AR_PREFS_STORAGE_KEY = "cashflow2025_arPrefs_v1";
   const defaultEnd = "2025-12-31";
 
   const ONE_OFF_SORT_KEYS = ["date", "schedule", "type", "name", "category", "next"];
@@ -862,11 +867,22 @@ STATE.incomeStreams = (STATE.incomeStreams || []).map((stream) => {
 STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
   if (!tx || typeof tx !== "object") return tx;
 
-  // Keep one-offs simple; normalize dayOfWeek only if present (harmless for old data)
-  if (tx.dayOfWeek !== undefined) {
-    return { ...tx, dayOfWeek: toWeekdayArray(tx.dayOfWeek) };
+  const next = { ...tx };
+
+  if (next.dayOfWeek !== undefined) {
+    next.dayOfWeek = toWeekdayArray(next.dayOfWeek);
   }
-  return tx;
+
+  if (next.source === "AR") {
+    next.status = next.status === "archived" ? "archived" : "pending";
+    if (next.lastSeenAt) {
+      next.lastSeenAt = String(next.lastSeenAt);
+    } else {
+      next.lastSeenAt = next.lastSeenAt ?? null;
+    }
+  }
+
+  return next;
 });
 
 
@@ -1058,14 +1074,14 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     return Array.from(seen);
   };
 
-  const normalizeCompanyKey = (value) => {
+  const collapseAlphaNumeric = (value) => {
     if (value === null || value === undefined) return "";
-    return String(value).trim().toUpperCase();
+    return String(value)
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
   };
-  const normalizeInvoiceKey = (value) => {
-    if (value === null || value === undefined) return "";
-    return String(value).trim().toUpperCase().replace(/\s+/g, "");
-  };
+  const normalizeCompanyKey = (value) => collapseAlphaNumeric(value);
+  const normalizeInvoiceKey = (value) => collapseAlphaNumeric(value);
   const makeSourceKey = (company, invoice) => {
     const normCompany = normalizeCompanyKey(company);
     const normInvoice = normalizeInvoiceKey(invoice);
@@ -1076,6 +1092,65 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
   const findOneOffBySourceKey = (key) => {
     if (!key) return undefined;
     return (STATE.oneOffs || []).find((tx) => tx && tx.source === "AR" && tx.sourceKey === key);
+  };
+
+  const defaultAROptions = () => ({ roll: "forward", lag: 0, conf: 100, category: "AR", prune: false });
+  const defaultARMappingOverrides = () => ({ company: "", invoice: "", due: "", amount: "" });
+  const sanitizeAROptions = (value) => {
+    const defaults = defaultAROptions();
+    if (!value || typeof value !== "object") return { ...defaults };
+    const roll = ["forward", "back", "none"].includes(value.roll) ? value.roll : defaults.roll;
+    const lagValue = Number(value.lag);
+    const lag = Number.isFinite(lagValue) ? Math.max(0, Math.trunc(lagValue)) : defaults.lag;
+    const confValue = Number(value.conf);
+    const conf = Number.isFinite(confValue) ? clamp(confValue, 0, 100) : defaults.conf;
+    const category = String(value.category ?? defaults.category).trim() || defaults.category;
+    const prune = Boolean(value.prune);
+    return { roll, lag, conf, category, prune };
+  };
+  const sanitizeARMapping = (value) => {
+    const defaults = defaultARMappingOverrides();
+    if (!value || typeof value !== "object") return { ...defaults };
+    const result = { ...defaults };
+    for (const key of Object.keys(defaults)) {
+      if (value[key]) {
+        result[key] = String(value[key]);
+      }
+    }
+    return result;
+  };
+  const loadARPreferences = () => {
+    try {
+      const raw = localStorage.getItem(AR_PREFS_STORAGE_KEY);
+      if (!raw) {
+        return { options: defaultAROptions(), mapping: defaultARMappingOverrides() };
+      }
+      const parsed = JSON.parse(raw);
+      return {
+        options: sanitizeAROptions(parsed.options),
+        mapping: sanitizeARMapping(parsed.mapping),
+      };
+    } catch {
+      return { options: defaultAROptions(), mapping: defaultARMappingOverrides() };
+    }
+  };
+  const initialARPrefs = loadARPreferences();
+  const saveARPreferences = () => {
+    try {
+      const payload = {
+        options: {
+          roll: arState.options.roll,
+          lag: arState.options.lag,
+          conf: arState.options.conf,
+          category: arState.options.category,
+          prune: arState.options.prune,
+        },
+        mapping: { ...arState.mappingOverrides },
+      };
+      localStorage.setItem(AR_PREFS_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // ignore storage failures
+    }
   };
 
   const arState = {
@@ -1089,7 +1164,10 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     summary: null,
     detection: null,
     lastRange: { start: 0, end: 0 },
-    options: { roll: "forward", lag: 0, conf: 100, category: "AR" },
+    options: sanitizeAROptions(initialARPrefs.options),
+    mappingOverrides: sanitizeARMapping(initialARPrefs.mapping),
+    duplicatesRemoved: 0,
+    presentKeys: new Set(),
   };
 
   const computeExpectedDate = (dueYMD) => {
@@ -1112,14 +1190,91 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     if (!row.name || !String(row.name).trim()) errors.name = true;
     row.errors = errors;
     row.valid = Object.keys(errors).length === 0;
-    if (!row.valid) row.selected = false;
+    if (!row.valid) {
+      row.selected = false;
+      row.userSelected = false;
+    }
     return row.valid;
+  };
+
+  const computeARCategory = (amount) => {
+    const defaultCategory = (arState.options.category || "AR").trim() || "AR";
+    return Number(amount) < 0 ? "AR Credit" : defaultCategory;
+  };
+
+  const buildPreviewEntry = (row) => {
+    if (!row) return null;
+    const sourceKey = row.sourceKey || makeSourceKey(row.company, row.invoice);
+    if (!sourceKey) return null;
+    const expected = row.expectedDate && isValidYMDString(row.expectedDate) ? row.expectedDate : null;
+    const amountValue = Number(row.amount);
+    if (!Number.isFinite(amountValue) || amountValue === 0) return null;
+    const name = row.name && String(row.name).trim();
+    if (!expected || !name) return null;
+    return {
+      date: expected,
+      type: "income",
+      name,
+      category: computeARCategory(amountValue),
+      amount: round2(amountValue),
+      source: "AR",
+      sourceKey,
+      status: "pending",
+      dueDate: row.dueDate || null,
+      company: row.company || "",
+      invoice: row.invoice || "",
+      confidencePct: clamp(Number(arState.options.conf || 0), 0, 100),
+    };
+  };
+
+  const isAREntrySame = (existing, preview) => {
+    if (!existing || !preview) return false;
+    const existingStatus = existing.status === "archived" ? "archived" : "pending";
+    if (existingStatus !== "pending") return false;
+    const existingAmount = round2(Number(existing.amount || 0));
+    const previewAmount = round2(Number(preview.amount || 0));
+    return (
+      (existing.date || "") === (preview.date || "") &&
+      existingAmount === previewAmount &&
+      (existing.name || "") === (preview.name || "") &&
+      (existing.category || "") === (preview.category || "")
+    );
+  };
+
+  const syncRowSelection = (row) => {
+    if (!row) return;
+    if (!row.valid) {
+      row.selected = false;
+      return;
+    }
+    if (row.userSelected) return;
+    row.selected = row.action !== "same";
+  };
+
+  const updateARRowAction = (row) => {
+    if (!row) return;
+    const preview = buildPreviewEntry(row);
+    row.previewEntry = preview;
+    const sourceKey = preview?.sourceKey || makeSourceKey(row.company, row.invoice);
+    row.sourceKey = sourceKey;
+    const existing = findOneOffBySourceKey(sourceKey);
+    row.existing = existing || null;
+    if (!sourceKey) {
+      row.action = "add";
+      return;
+    }
+    if (!existing) {
+      row.action = "add";
+      return;
+    }
+    row.action = preview && isAREntrySame(existing, preview) ? "same" : "update";
   };
 
   const refreshARRow = (row, { dueChanged = false, forceExpected = false, forceAmount = false, forceName = false } = {}) => {
     if (!row) return;
     if (dueChanged) row.manualExpected = false;
     const conf = clamp(Number(arState.options.conf || 0), 0, 100);
+    row.confidence = conf;
     if (forceExpected || dueChanged || (!row.manualExpected && row.dueDate)) {
       row.expectedDate = computeExpectedDate(row.dueDate);
     }
@@ -1130,24 +1285,25 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
       row.name = defaultARName(row.company, row.invoice);
     }
     row.sourceKey = makeSourceKey(row.company, row.invoice);
-    row.action = row.sourceKey && findOneOffBySourceKey(row.sourceKey) ? "update" : "add";
+    updateARRowAction(row);
     validateARRow(row);
+    syncRowSelection(row);
   };
 
   const updateSelectAllState = () => {
     const selectAll = $("#arSelectAll");
     if (!selectAll) return;
-    const validRows = arState.rows.filter((row) => row.valid);
-    if (!validRows.length) {
+    const selectableRows = arState.rows.filter((row) => row.valid && row.action !== "same");
+    if (!selectableRows.length) {
       selectAll.checked = false;
       selectAll.indeterminate = false;
-      selectAll.disabled = arState.rows.length === 0;
+      selectAll.disabled = true;
       return;
     }
-    const selected = validRows.filter((row) => row.selected).length;
+    const selected = selectableRows.filter((row) => row.selected).length;
     selectAll.disabled = false;
-    selectAll.checked = selected > 0 && selected === validRows.length;
-    selectAll.indeterminate = selected > 0 && selected < validRows.length;
+    selectAll.checked = selected > 0 && selected === selectableRows.length;
+    selectAll.indeterminate = selected > 0 && selected < selectableRows.length;
   };
 
   const updateARImportButton = () => {
@@ -1173,7 +1329,7 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     const checkbox = tr.querySelector('input[type="checkbox"][data-act="toggleRow"]');
     if (checkbox) {
       checkbox.disabled = !row.valid;
-      checkbox.checked = row.valid && row.selected;
+      checkbox.checked = Boolean(row.valid && row.selected);
     }
     tr.querySelectorAll('[data-field]').forEach((input) => {
       const field = input.dataset.field;
@@ -1197,9 +1353,15 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     });
     const badge = tr.querySelector('[data-badge]');
     if (badge) {
-      badge.textContent = row.action === "update" ? "Update" : "Add";
-      badge.classList.toggle("badge-update", row.action === "update");
-      badge.classList.toggle("badge-add", row.action !== "update");
+      badge.textContent = row.action ? row.action.toUpperCase() : "";
+      badge.classList.remove("badge-add", "badge-update", "badge-same");
+      if (row.action === "update") {
+        badge.classList.add("badge-update");
+      } else if (row.action === "same") {
+        badge.classList.add("badge-same");
+      } else {
+        badge.classList.add("badge-add");
+      }
     }
   };
 
@@ -1252,8 +1414,42 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
       el.textContent = "";
       return;
     }
-    const { added = 0, updated = 0, skipped = 0 } = arState.summary;
-    el.textContent = `Last import: ${added} added, ${updated} updated${skipped ? `, ${skipped} skipped` : ""}.`;
+    const { added = 0, updated = 0, unchanged = 0, archived = 0, skipped = 0 } = arState.summary;
+    const parts = [
+      `Added ${fmtCount(added)}`,
+      `Updated ${fmtCount(updated)}`,
+      `Unchanged ${fmtCount(unchanged)}`,
+      `Archived ${fmtCount(archived)}`,
+    ];
+    if (skipped) parts.push(`Skipped ${fmtCount(skipped)}`);
+    el.textContent = `Last import: ${parts.join(" • ")}`;
+  };
+
+  const renderARCounters = () => {
+    const el = $("#arCounters");
+    if (!el) return;
+    if (!arState.rows.length) {
+      el.textContent = "";
+      return;
+    }
+    let add = 0;
+    let update = 0;
+    let same = 0;
+    for (const row of arState.rows) {
+      if (!row || !row.valid) continue;
+      if (row.action === "update") update += 1;
+      else if (row.action === "same") same += 1;
+      else add += 1;
+    }
+    const parts = [
+      `Add ${fmtCount(add)}`,
+      `Update ${fmtCount(update)}`,
+      `Same ${fmtCount(same)}`,
+    ];
+    if (arState.duplicatesRemoved) {
+      parts.push(`Duplicates removed ${fmtCount(arState.duplicatesRemoved)}`);
+    }
+    el.textContent = parts.join(" • ");
   };
 
   const renderARPreview = () => {
@@ -1274,6 +1470,7 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
       updateSelectAllState();
       renderARPagination();
       renderARSummary();
+      renderARCounters();
       return;
     }
     const perPage = arState.perPage || arState.rows.length;
@@ -1296,7 +1493,7 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
         <td><input type="date" data-field="expectedDate" data-id="${row.id}" value="${row.expectedDate || ""}" /></td>
         <td><input type="number" step="0.01" data-field="amount" data-id="${row.id}" value="${amountValue}" /></td>
         <td><input type="text" data-field="name" data-id="${row.id}" value="${escapeHtml(row.name ?? "")}" /></td>
-        <td><span class="badge ${row.action === "update" ? "badge-update" : "badge-add"}" data-badge>${row.action === "update" ? "Update" : "Add"}</span></td>
+        <td><span class="badge" data-badge></span></td>
       `;
       tbody.appendChild(tr);
       applyRowToDOM(row);
@@ -1306,11 +1503,30 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     updateSelectAllState();
     renderARPagination();
     renderARSummary();
+    renderARCounters();
+  };
+
+  const pickBetterDuplicate = (existing, candidate) => {
+    if (!existing) return candidate;
+    if (!candidate) return existing;
+    if (existing.dueDate && candidate.dueDate) {
+      const cmp = compareYMD(candidate.dueDate, existing.dueDate);
+      if (cmp > 0) return candidate;
+      if (cmp < 0) return existing;
+    }
+    const existingAmount = Math.abs(Number(existing.baseAmount ?? existing.amount ?? 0));
+    const candidateAmount = Math.abs(Number(candidate.baseAmount ?? candidate.amount ?? 0));
+    if (candidateAmount > existingAmount) return candidate;
+    return existing;
   };
 
   const normalizeARRows = (rawRows, mapping, aux) => {
-    const rows = [];
+    const noKeyRows = [];
+    const keyOrder = [];
+    const dedup = new Map();
+    const presentKeys = new Set();
     let skipped = 0;
+    let duplicatesRemoved = 0;
     const totalsRegex = /^(total|subtotal|aging|bucket)/i;
     const bucketColumns = detectAgingBucketColumns(rawRows);
     let currentCompany = "";
@@ -1393,14 +1609,33 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
         manualExpected: false,
         manualAmount: false,
         manualName: false,
-        selected: true,
+        userSelected: false,
+        selected: false,
         errors: {},
-        sourceKey: makeSourceKey(company, invoice),
+        valid: false,
         action: "add",
+        previewEntry: null,
       };
-      rows.push(row);
+      row.sourceKey = makeSourceKey(company, invoice);
+      if (row.sourceKey) {
+        presentKeys.add(row.sourceKey);
+        if (!dedup.has(row.sourceKey)) {
+          dedup.set(row.sourceKey, row);
+          keyOrder.push(row.sourceKey);
+        } else {
+          const current = dedup.get(row.sourceKey);
+          const preferred = pickBetterDuplicate(current, row);
+          if (preferred !== current) {
+            dedup.set(row.sourceKey, preferred);
+          }
+          duplicatesRemoved += 1;
+        }
+      } else {
+        noKeyRows.push(row);
+      }
     }
-    return { rows, skipped };
+    const keyedRows = keyOrder.map((key) => dedup.get(key));
+    return { rows: [...keyedRows, ...noKeyRows], skipped, duplicatesRemoved, presentKeys };
   };
 
   const parseARFile = (file) =>
@@ -1542,6 +1777,9 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
         amount: $("#colAmount")?.value?.trim() || "",
       };
 
+      arState.mappingOverrides = sanitizeARMapping(mappingInput);
+      saveARPreferences();
+
       const resolvedMapping = {
         company: resolveColumnName(headers, mappingInput.company),
         invoice: resolveColumnName(headers, mappingInput.invoice),
@@ -1564,7 +1802,12 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
         invoiceDate: detection.aux.invoiceDate ? resolveColumnName(headers, detection.aux.invoiceDate) : "",
       };
 
-      const { rows: normalizedRows, skipped } = normalizeARRows(rawRows, resolvedMapping, resolvedAux);
+      const {
+        rows: normalizedRows,
+        skipped,
+        duplicatesRemoved,
+        presentKeys,
+      } = normalizeARRows(rawRows, resolvedMapping, resolvedAux);
       if (!normalizedRows.length) {
         arState.rows = [];
         renderARPreview();
@@ -1576,6 +1819,8 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
       arState.rows = limitedRows;
       arState.mapping = resolvedMapping;
       arState.aux = resolvedAux;
+      arState.duplicatesRemoved = duplicatesRemoved;
+      arState.presentKeys = new Set(presentKeys || []);
       arState.page = 1;
       arState.perPage = limitedRows.length > 1000 ? 200 : Math.max(limitedRows.length, 1);
       arState.summary = null;
@@ -1584,8 +1829,8 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
         row.manualAmount = false;
         row.manualExpected = false;
         row.manualName = false;
+        row.userSelected = false;
         refreshARRow(row, { dueChanged: true, forceExpected: true, forceAmount: true, forceName: true });
-        row.selected = row.valid;
       }
 
       const validCount = arState.rows.filter((row) => row.valid).length;
@@ -1595,6 +1840,7 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
       parts.push(`${validCount} ready`);
       if (skipped) parts.push(`${skipped} skipped`);
       if (truncated) parts.push(`showing first ${limitedRows.length}`);
+      if (duplicatesRemoved) parts.push(`${duplicatesRemoved} duplicates merged`);
       const lowConfidence = Object.values(detection.scores || {}).some((score) => score < 2);
       if (lowConfidence) parts.push("check column mapping");
 
@@ -1616,7 +1862,11 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
         row.selected = false;
         continue;
       }
+      if (row.action === "same") {
+        continue;
+      }
       row.selected = checked;
+      row.userSelected = true;
     }
     const tbody = $("#arPreview tbody");
     if (tbody) {
@@ -1624,7 +1874,7 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
         const id = checkbox.dataset.id;
         const row = arState.rows.find((r) => r.id === id);
         if (!row) return;
-        checkbox.checked = row.valid && row.selected;
+        checkbox.checked = Boolean(row.valid && row.selected);
       });
     }
     updateARImportButton();
@@ -1655,17 +1905,23 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
       case "expectedDate":
         row.expectedDate = value;
         row.manualExpected = true;
+        updateARRowAction(row);
         validateARRow(row);
+        syncRowSelection(row);
         break;
       case "amount":
-        row.amount = Number(value);
+        row.amount = Number.isFinite(Number(value)) ? round2(Number(value)) : Number(value);
         row.manualAmount = true;
+        updateARRowAction(row);
         validateARRow(row);
+        syncRowSelection(row);
         break;
       case "name":
         row.name = value;
         row.manualName = true;
+        updateARRowAction(row);
         validateARRow(row);
+        syncRowSelection(row);
         break;
       default:
         break;
@@ -1673,6 +1929,7 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     applyRowToDOM(row);
     updateARImportButton();
     updateSelectAllState();
+    renderARCounters();
   };
 
   const handleARTableChange = (event) => {
@@ -1686,6 +1943,7 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
         row.selected = false;
       } else {
         row.selected = target.checked;
+        row.userSelected = true;
       }
       updateARImportButton();
       updateSelectAllState();
@@ -1715,62 +1973,112 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
       updateARStatus("No rows selected for import.", "error");
       return;
     }
-    const defaultCategory = (arState.options.category || "AR").trim() || "AR";
+    const timestamp = new Date().toISOString();
     let added = 0;
     let updated = 0;
+    let unchanged = 0;
+    let archived = 0;
     let skipped = 0;
+    let changed = false;
+    const touchedKeys = new Set();
+
     for (const row of selectedRows) {
-      const sourceKey = row.sourceKey || makeSourceKey(row.company, row.invoice);
-      if (!sourceKey) {
+      const preview = row.previewEntry || buildPreviewEntry(row);
+      if (!preview || !preview.sourceKey) {
         skipped += 1;
         row.selected = false;
+        row.userSelected = false;
         continue;
       }
-      const expected = row.expectedDate && isValidYMDString(row.expectedDate) ? row.expectedDate : row.dueDate;
-      if (!expected || !isValidYMDString(expected)) {
-        skipped += 1;
-        row.selected = false;
-        continue;
-      }
-      const amount = Number(row.amount);
-      if (!Number.isFinite(amount) || amount === 0) {
-        skipped += 1;
-        row.selected = false;
-        continue;
-      }
-      const name = row.name && row.name.trim() ? row.name.trim() : defaultARName(row.company, row.invoice);
-      const existing = findOneOffBySourceKey(sourceKey);
-      const entry = {
-        id: existing?.id || uid(),
-        date: expected,
-        type: "income",
-        name,
-        category: amount < 0 ? "AR Credit" : defaultCategory,
-        amount: round2(amount),
-        source: "AR",
-        sourceKey,
-      };
-      if (existing) {
-        Object.assign(existing, entry);
-        updated += 1;
-      } else {
+      const existing = findOneOffBySourceKey(preview.sourceKey);
+      if (!existing) {
+        const entry = {
+          ...preview,
+          id: uid(),
+          lastSeenAt: timestamp,
+          status: "pending",
+          company: row.company || "",
+          invoice: row.invoice || "",
+          dueDate: row.dueDate || null,
+        };
         STATE.oneOffs.push(entry);
         added += 1;
+        changed = true;
+      } else {
+        const same = row.action === "same" && existing.status !== "archived" && isAREntrySame(existing, preview);
+        Object.assign(existing, {
+          ...preview,
+          id: existing.id,
+          lastSeenAt: timestamp,
+          status: "pending",
+          company: row.company || existing.company || "",
+          invoice: row.invoice || existing.invoice || "",
+          dueDate: row.dueDate || existing.dueDate || null,
+        });
+        if (same) {
+          unchanged += 1;
+        } else {
+          updated += 1;
+        }
+        changed = true;
       }
-      row.action = "update";
-      row.sourceKey = sourceKey;
+      touchedKeys.add(preview.sourceKey);
       row.selected = false;
+      row.userSelected = false;
     }
-    if (added || updated) {
+
+    for (const row of arState.rows) {
+      if (!row.previewEntry || !row.previewEntry.sourceKey) continue;
+      const existing = findOneOffBySourceKey(row.previewEntry.sourceKey);
+      if (!existing) continue;
+      if (!touchedKeys.has(row.previewEntry.sourceKey) && row.action === "same") {
+        existing.lastSeenAt = timestamp;
+        touchedKeys.add(row.previewEntry.sourceKey);
+        changed = true;
+      }
+    }
+
+    if (arState.options.prune && arState.presentKeys && arState.presentKeys.size) {
+      for (const tx of STATE.oneOffs || []) {
+        if (!tx || tx.source !== "AR") continue;
+        if (!arState.presentKeys.has(tx.sourceKey)) {
+          if (tx.status !== "archived") {
+            tx.status = "archived";
+            archived += 1;
+            changed = true;
+          }
+        } else if (tx.status === "archived") {
+          tx.status = "pending";
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
       save(STATE);
       recalcAndRender();
     }
-    arState.summary = { added, updated, skipped };
+
+    arState.summary = { added, updated, unchanged, archived, skipped };
+    for (const row of arState.rows) {
+      row.userSelected = false;
+      row.selected = false;
+      refreshARRow(row);
+    }
+
     renderARPreview();
-    if (added || updated) {
-      updateARStatus(`Import complete: ${added} added, ${updated} updated${skipped ? `, ${skipped} skipped` : ""}.`, "success");
+
+    if (added || updated || unchanged || archived) {
+      const parts = [
+        `Added ${fmtCount(added)}`,
+        `Updated ${fmtCount(updated)}`,
+        `Unchanged ${fmtCount(unchanged)}`,
+      ];
+      if (archived) parts.push(`Archived ${fmtCount(archived)}`);
+      if (skipped) parts.push(`Skipped ${fmtCount(skipped)}`);
+      updateARStatus(`Import complete: ${parts.join(" • ")}.`, "success");
     } else {
-      updateARStatus(skipped ? `Nothing imported. ${skipped} rows skipped.` : "Nothing to import.", "error");
+      updateARStatus(skipped ? `Nothing imported. ${fmtCount(skipped)} skipped.` : "Nothing to import.", "error");
     }
   };
 
@@ -1780,31 +2088,74 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     const lagInput = $("#arLag");
     const confInput = $("#arConf");
     const categoryInput = $("#arCategory");
+    const pruneInput = $("#arPrune");
 
-    arState.options.roll = rollSelect.value || "forward";
-    arState.options.lag = Number(lagInput?.value || 0) || 0;
-    const confValue = clamp(Number(confInput?.value || 100) || 0, 0, 100);
-    arState.options.conf = confValue;
-    if (confInput) confInput.value = confValue;
-    arState.options.category = categoryInput?.value || "AR";
+    if (rollSelect) rollSelect.value = arState.options.roll;
+    if (lagInput) lagInput.value = String(arState.options.lag ?? 0);
+    if (confInput) confInput.value = String(arState.options.conf ?? 100);
+    if (categoryInput) categoryInput.value = arState.options.category || "AR";
+    if (pruneInput) pruneInput.checked = Boolean(arState.options.prune);
+
+    const mappingFields = [
+      ["#colCompany", "company"],
+      ["#colInvoice", "invoice"],
+      ["#colDue", "due"],
+      ["#colAmount", "amount"],
+    ];
+    for (const [selector, key] of mappingFields) {
+      const input = $(selector);
+      if (!input) continue;
+      if (arState.mappingOverrides[key]) {
+        input.value = arState.mappingOverrides[key];
+      }
+      input.addEventListener("change", () => {
+        arState.mappingOverrides[key] = input.value.trim();
+        saveARPreferences();
+      });
+    }
 
     rollSelect.addEventListener("change", (e) => {
-      arState.options.roll = e.target.value || "forward";
+      const val = e.target.value || "forward";
+      arState.options.roll = ["forward", "back", "none"].includes(val) ? val : "forward";
+      saveARPreferences();
+      if (arState.rows.length) {
+        recalcARRows();
+        renderARPreview();
+      }
     });
     lagInput?.addEventListener("change", () => {
       const val = Number(lagInput.value || 0);
       const normalized = Number.isFinite(val) ? Math.max(0, Math.trunc(val)) : 0;
       arState.options.lag = normalized;
       lagInput.value = normalized;
+      saveARPreferences();
+      if (arState.rows.length) {
+        recalcARRows();
+        renderARPreview();
+      }
     });
     confInput?.addEventListener("change", () => {
       const val = Number(confInput.value || 0);
       const normalized = clamp(Number.isFinite(val) ? val : 0, 0, 100);
       arState.options.conf = normalized;
       confInput.value = normalized;
+      saveARPreferences();
+      if (arState.rows.length) {
+        recalcARRows();
+        renderARPreview();
+      }
     });
     categoryInput?.addEventListener("input", () => {
       arState.options.category = categoryInput.value;
+      saveARPreferences();
+      if (arState.rows.length) {
+        recalcARRows();
+        renderARPreview();
+      }
+    });
+    pruneInput?.addEventListener("change", () => {
+      arState.options.prune = pruneInput.checked;
+      saveARPreferences();
     });
 
     const importBtn = $("#arImportBtn");
@@ -2000,7 +2351,13 @@ const shim = {
     const { settings, oneOffs, incomeStreams, adjustments } = state;
     const cal = generateCalendar(settings.startDate, settings.endDate);
     const recurring = oneOffs.filter((tx) => tx && typeof tx === "object" && tx.recurring);
-    const singles = oneOffs.filter((tx) => tx && typeof tx === "object" && !tx.recurring);
+    const singles = oneOffs.filter(
+      (tx) =>
+        tx &&
+        typeof tx === "object" &&
+        !tx.recurring &&
+        !(tx.source === "AR" && tx.status === "archived")
+    );
     let totalStreamIncome = 0;
 
     // Accumulate one-offs by exact date
@@ -2017,8 +2374,13 @@ const shim = {
         row.expenses += absAmt;
         row.expenseDetails.push({ source: label, amount: absAmt });
       } else {
-        row.income += absAmt;
-        row.incomeDetails.push({ source: label, amount: absAmt });
+        if (amt >= 0) {
+          row.income += absAmt;
+          row.incomeDetails.push({ source: label, amount: absAmt });
+        } else {
+          row.income -= absAmt;
+          row.incomeDetails.push({ source: label, amount: -absAmt });
+        }
       }
     }
 
@@ -2724,8 +3086,8 @@ const shim = {
       const type = $("#ooType").value;
       const name = $("#ooName").value.trim();
       const category = $("#ooCategory").value.trim();
-      const amount = Number($("#ooAmount").value || 0);
-      if (!date || !name || Number.isNaN(amount)) return;
+      const amountRaw = Number($("#ooAmount").value || 0);
+      if (!date || !name || Number.isNaN(amountRaw)) return;
 
       const entry = {
         id: isEditing ? editingId : uid(),
@@ -2733,7 +3095,7 @@ const shim = {
         type,
         name,
         category,
-        amount: Math.abs(amount),
+        amount: type === "expense" ? Math.abs(amountRaw) : round2(amountRaw),
       };
 
       if (repeats) {
@@ -2777,6 +3139,17 @@ const shim = {
       if (isEditing) {
         const idx = STATE.oneOffs.findIndex((tx) => tx && tx.id === editingId);
         if (idx >= 0) {
+          const prev = STATE.oneOffs[idx];
+          if (prev && typeof prev === "object") {
+            entry.source = prev.source;
+            entry.sourceKey = prev.sourceKey;
+            entry.status = prev.status;
+            entry.lastSeenAt = prev.lastSeenAt;
+            if (prev.company) entry.company = prev.company;
+            if (prev.invoice) entry.invoice = prev.invoice;
+            if (prev.dueDate) entry.dueDate = prev.dueDate;
+            if (prev.confidencePct !== undefined) entry.confidencePct = prev.confidencePct;
+          }
           STATE.oneOffs[idx] = entry;
         } else {
           STATE.oneOffs.push(entry);
