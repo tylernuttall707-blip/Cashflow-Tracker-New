@@ -1089,6 +1089,109 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     return `${normCompany}#${normInvoice}`;
   };
 
+  const findInvoiceFromText = (text) => {
+    if (!text) return "";
+    const str = String(text);
+    const patterns = [
+      /INV(?:OICE)?\s*(?:NUMBER|NO\.|NUM|#|:)?\s*([A-Z0-9-]+)/i,
+      /#\s*([A-Z0-9-]{3,})/g,
+    ];
+    for (const pattern of patterns) {
+      if (pattern.global) {
+        let match = null;
+        while ((match = pattern.exec(str))) {
+          if (match && match[1]) {
+            const candidate = normalizeInvoiceKey(match[1]);
+            if (candidate) return candidate;
+          }
+        }
+        continue;
+      }
+      const match = pattern.exec(str);
+      if (match && match[1]) {
+        const candidate = normalizeInvoiceKey(match[1]);
+        if (candidate) return candidate;
+      }
+    }
+    return "";
+  };
+
+  const findCompanyFromName = (text) => {
+    if (!text) return "";
+    const str = String(text);
+    const match = str.match(/\(([^)]+)\)/);
+    if (match && match[1]) {
+      const normalized = normalizeCompanyKey(match[1]);
+      if (normalized) return normalized;
+    }
+    const invoiceLead = str.match(/^(.*?)(?:INV(?:OICE)?\b|#)/i);
+    if (invoiceLead && invoiceLead[1]) {
+      let candidate = invoiceLead[1].trim();
+      candidate = candidate.replace(/^income\s*/i, "");
+      candidate = candidate.replace(/^[^A-Z0-9]+/i, "");
+      candidate = candidate.replace(/[^A-Z0-9]+$/i, "");
+      const normalized = normalizeCompanyKey(candidate);
+      if (normalized && normalized !== "INCOME") return normalized;
+    }
+    return "";
+  };
+
+  const deriveCashMovementKey = (entry) => {
+    if (!entry) return null;
+    if (entry.sourceKey) return entry.sourceKey;
+
+    const companyCandidates = [];
+    const pushCompany = (value) => {
+      const normalized = normalizeCompanyKey(value);
+      if (normalized) companyCandidates.push(normalized);
+    };
+    pushCompany(entry.company);
+    pushCompany(entry.customer);
+    pushCompany(entry.customerName);
+    pushCompany(entry.client);
+    pushCompany(entry.clientName);
+    pushCompany(entry.vendor);
+    if (entry.name) {
+      const fromName = findCompanyFromName(entry.name);
+      if (fromName) companyCandidates.push(fromName);
+    }
+
+    const invoiceCandidates = [];
+    const pushInvoice = (value) => {
+      const normalized = normalizeInvoiceKey(value);
+      if (normalized && /\d/.test(normalized)) invoiceCandidates.push(normalized);
+    };
+    pushInvoice(entry.invoice);
+    pushInvoice(entry.invoiceNumber);
+    pushInvoice(entry.reference);
+    pushInvoice(entry.ref);
+    pushInvoice(entry.poNumber);
+    pushInvoice(entry.po);
+    pushInvoice(entry.note);
+    pushInvoice(entry.description);
+    if (entry.name) {
+      const fromName = findInvoiceFromText(entry.name);
+      if (fromName) invoiceCandidates.push(fromName);
+    }
+
+    const uniqueCompanies = [...new Set(companyCandidates.filter(Boolean))];
+    const uniqueInvoices = [...new Set(invoiceCandidates.filter(Boolean))];
+
+    for (const company of uniqueCompanies) {
+      for (const invoice of uniqueInvoices) {
+        const key = makeSourceKey(company, invoice);
+        if (key) return key;
+      }
+    }
+
+    const invoiceOnly = uniqueInvoices[0];
+    if (!invoiceOnly) return null;
+    const amount = Math.abs(Number(entry.amount) || 0);
+    const amountKey = amount ? String(round2(amount)) : "0";
+    const dateKey = entry.date || entry.expectedDate || entry.dueDate || "";
+    return `INVONLY#${invoiceOnly}#${amountKey}#${normalizeInvoiceKey(dateKey)}`;
+  };
+
   const findOneOffBySourceKey = (key) => {
     if (!key) return undefined;
     return (STATE.oneOffs || []).find((tx) => tx && tx.source === "AR" && tx.sourceKey === key);
@@ -1136,9 +1239,17 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     const groups = new Map();
 
     for (const entry of entries) {
-      if (!entry || entry.source !== "AR") continue;
-      const key = entry.sourceKey || makeSourceKey(entry.company, entry.invoice);
+      if (!entry) continue;
+      const isARSource = entry.source === "AR" || Boolean(entry.sourceKey);
+      const arCategory = typeof entry.category === "string" && entry.category.toLowerCase().startsWith("ar");
+      if (!isARSource && !arCategory) continue;
+
+      const key = deriveCashMovementKey(entry);
       if (!key) continue;
+      if (!entry.sourceKey && !key.startsWith("INVONLY#")) {
+        entry.sourceKey = key;
+      }
+
       if (!groups.has(key)) {
         groups.set(key, [entry]);
       } else {
