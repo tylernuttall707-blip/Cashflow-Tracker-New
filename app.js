@@ -4069,6 +4069,9 @@ const shim = {
             ? `${fmtDate(entry.startDate)} → ${fmtDate(entry.endDate)}`
             : fmtDate(entry.startDate)
           : "";
+        const rangeLabelHtml = rangeLabel
+          ? `<span class="whatif-sale-entry-range">${escapeHtml(rangeLabel)}</span>`
+          : "";
         if (state?.isEditing) {
           fragments.push(`
 <div class="whatif-sale-entry is-editing" data-sale-id="${entry.id}">
@@ -4114,7 +4117,7 @@ const shim = {
           fragments.push(`
 <div class="whatif-sale-entry is-collapsed" data-sale-id="${entry.id}"${rangeLabel ? ` title="${escapeHtml(rangeLabel)}"` : ""}>
   <div class="whatif-sale-entry-head">
-    <div class="whatif-sale-entry-title">${escapeHtml(displayName)}</div>
+    <div class="whatif-sale-entry-title"><span class="whatif-sale-entry-name">${escapeHtml(displayName)}</span>${rangeLabelHtml}</div>
     <div class="whatif-sale-entry-actions">
       <button type="button" class="link" data-role="editSale">Edit</button>
       <button type="button" class="link" data-role="removeSale">Delete</button>
