@@ -382,6 +382,7 @@ const firstWeekday = (value, fallback = 0) => {
     const safeStart = isValidYMDString(startDate) ? startDate : todayYMD;
     return {
       id: uid(),
+      name: "",
       pct: 0,
       topup: 0,
       startDate: safeStart,
@@ -389,6 +390,30 @@ const firstWeekday = (value, fallback = 0) => {
       businessDaysOnly: true,
       lastEdited: "pct",
     };
+  };
+
+  const saleUIState = new Map();
+
+  const createSaleDraftFromEntry = (entry) => ({
+    name: typeof entry.name === "string" ? entry.name : "",
+    pct: String(Math.round((Number(entry.pct) || 0) * 100)),
+    topup: Number.isFinite(Number(entry.topup)) ? Number(entry.topup).toFixed(2) : "0.00",
+    startDate: entry.startDate || "",
+    endDate: entry.endDate || "",
+    businessDaysOnly: Boolean(entry.businessDaysOnly),
+    lastEdited: entry.lastEdited === "topup" ? "topup" : "pct",
+  });
+
+  const ensureSaleUIState = (entry) => {
+    if (!entry || typeof entry.id !== "string") return null;
+    let state = saleUIState.get(entry.id);
+    if (!state) {
+      state = { isEditing: false, draft: createSaleDraftFromEntry(entry) };
+      saleUIState.set(entry.id, state);
+    } else if (!state.isEditing) {
+      state.draft = createSaleDraftFromEntry(entry);
+    }
+    return state;
   };
 
   const normalizeState = (raw, { strict = false } = {}) => {
@@ -801,8 +826,10 @@ const firstWeekday = (value, fallback = 0) => {
       const entryTopup = clampCurrency(entry.topup, 0);
       const lastEdited = entry.lastEdited === "topup" ? "topup" : "pct";
       const id = typeof entry.id === "string" ? entry.id : uid();
+      const name = typeof entry.name === "string" ? entry.name.trim().slice(0, 120) : "";
       saleEntries.push({
         id,
+        name,
         pct: entryPct,
         topup: entryTopup,
         startDate: entryStart,
@@ -3852,6 +3879,11 @@ const shim = {
         entry.lastEdited = "pct";
         saleMutated = true;
       }
+      const name = typeof entry.name === "string" ? entry.name.trim().slice(0, 120) : "";
+      if (name !== entry.name) {
+        entry.name = name;
+        saleMutated = true;
+      }
       validSaleEntries.push(entry);
     }
     if (validSaleEntries.length !== saleTweaks.entries.length) {
@@ -4018,24 +4050,36 @@ const shim = {
     if (addSaleBtn) addSaleBtn.disabled = !saleTweaks.enabled;
     const saleList = $("#whatifSaleList");
     if (saleList) {
-      if (!saleTweaks.entries.length) {
-        saleList.innerHTML = '<p class="whatif-sale-empty">No sale windows configured.</p>';
-      } else {
-        saleList.innerHTML = saleTweaks.entries
-          .map((entry, idx) => {
-            const pctValue = Math.round(entry.pct * 100);
-            const topupValue = entry.topup.toFixed(2);
-            const modeText = entry.lastEdited === "topup" ? "Mode: $ top-up per day" : "Mode: % uplift";
-            const rangeLabel = entry.startDate
-              ? entry.endDate && entry.endDate !== entry.startDate
-                ? `${fmtDate(entry.startDate)} → ${fmtDate(entry.endDate)}`
-                : fmtDate(entry.startDate)
-              : "";
-            return `
-<div class="whatif-sale-entry" data-sale-id="${entry.id}">
+      const activeIds = new Set();
+      const fragments = [];
+      for (const [idx, entry] of saleTweaks.entries.entries()) {
+        if (!entry || typeof entry !== "object" || typeof entry.id !== "string") continue;
+        activeIds.add(entry.id);
+        const state = ensureSaleUIState(entry);
+        const draft = state?.draft || createSaleDraftFromEntry(entry);
+        const pctValue = draft.pct ?? String(Math.round(entry.pct * 100));
+        const topupValue = draft.topup ?? entry.topup.toFixed(2);
+        const startValue = draft.startDate ?? entry.startDate ?? "";
+        const endValue = draft.endDate ?? entry.endDate ?? "";
+        const modeSource = state?.isEditing ? draft.lastEdited : entry.lastEdited;
+        const modeText = modeSource === "topup" ? "Mode: $ top-up per day" : "Mode: % uplift";
+        const displayName = (entry.name && entry.name.trim()) || `Sale window ${idx + 1}`;
+        const rangeLabel = entry.startDate
+          ? entry.endDate && entry.endDate !== entry.startDate
+            ? `${fmtDate(entry.startDate)} → ${fmtDate(entry.endDate)}`
+            : fmtDate(entry.startDate)
+          : "";
+        if (state?.isEditing) {
+          fragments.push(`
+<div class="whatif-sale-entry is-editing" data-sale-id="${entry.id}">
   <div class="whatif-sale-entry-head">
-    <div class="whatif-sale-entry-title">Sale window ${idx + 1}${rangeLabel ? ` · ${escapeHtml(rangeLabel)}` : ""}</div>
-    <button type="button" class="link" data-role="removeSale">Remove</button>
+    <div class="whatif-sale-entry-title">
+      <label class="whatif-fields whatif-sale-name">
+        <span>Window name <small>(optional)</small></span>
+        <input type="text" data-role="saleName" placeholder="e.g. Holiday promo" value="${escapeHtml(draft.name || "")}" />
+      </label>
+    </div>
+    <button type="button" class="link" data-role="removeSale">Delete</button>
   </div>
   <div class="whatif-sale-grid">
     <label class="whatif-fields">
@@ -4044,27 +4088,48 @@ const shim = {
     </label>
     <label class="whatif-fields">
       <span>$ top-up per day</span>
-      <input type="number" data-role="saleTopup" step="0.01" value="${escapeHtml(topupValue)}" />
+      <input type="number" data-role="saleTopup" step="0.01" value="${escapeHtml(String(topupValue))}" />
     </label>
   </div>
   <div class="whatif-sale-mode-label">${escapeHtml(modeText)}</div>
   <div class="whatif-inline">
     <div class="whatif-fields">
       <label>Start</label>
-      <input type="date" data-role="saleStart" value="${escapeHtml(entry.startDate || "")}" />
+      <input type="date" data-role="saleStart" value="${escapeHtml(startValue)}" />
     </div>
     <div class="whatif-fields">
       <label>End</label>
-      <input type="date" data-role="saleEnd" value="${escapeHtml(entry.endDate || "")}" />
+      <input type="date" data-role="saleEnd" value="${escapeHtml(endValue)}" />
     </div>
   </div>
   <label class="whatif-toggle">
-    <input type="checkbox" data-role="saleBusiness" ${entry.businessDaysOnly ? "checked" : ""} />
+    <input type="checkbox" data-role="saleBusiness" ${draft.businessDaysOnly ? "checked" : ""} />
     Only apply on business days
   </label>
-</div>`;
-          })
-          .join("");
+  <div class="whatif-sale-actions">
+    <button type="button" class="btn" data-role="applySale">Apply</button>
+  </div>
+</div>`);
+        } else {
+          fragments.push(`
+<div class="whatif-sale-entry is-collapsed" data-sale-id="${entry.id}"${rangeLabel ? ` title="${escapeHtml(rangeLabel)}"` : ""}>
+  <div class="whatif-sale-entry-head">
+    <div class="whatif-sale-entry-title">${escapeHtml(displayName)}</div>
+    <div class="whatif-sale-entry-actions">
+      <button type="button" class="link" data-role="editSale">Edit</button>
+      <button type="button" class="link" data-role="removeSale">Delete</button>
+    </div>
+  </div>
+</div>`);
+        }
+      }
+      for (const id of Array.from(saleUIState.keys())) {
+        if (!activeIds.has(id)) saleUIState.delete(id);
+      }
+      if (!fragments.length) {
+        saleList.innerHTML = '<p class="whatif-sale-empty">No sale windows configured.</p>';
+      } else {
+        saleList.innerHTML = fragments.join("");
       }
     }
 
@@ -4090,6 +4155,7 @@ const shim = {
         enabled: saleTweaks.enabled,
         entries: saleTweaks.entries.map((entry) => ({
           id: entry.id,
+          name: entry.name,
           startDate: entry.startDate,
           endDate: entry.endDate,
           pct: entry.pct,
@@ -4563,7 +4629,9 @@ const shim = {
       const sale = getSaleTweaks();
       sale.enabled = Boolean(e.target.checked);
       if (sale.enabled && !sale.entries.length) {
-        sale.entries.push(createSaleEntry(getSaleDefaultStart()));
+        const entry = createSaleEntry(getSaleDefaultStart());
+        sale.entries.push(entry);
+        saleUIState.set(entry.id, { isEditing: true, draft: createSaleDraftFromEntry(entry) });
       }
       saveWhatIf(WHATIF);
       renderWhatIf();
@@ -4572,7 +4640,9 @@ const shim = {
     const addSaleBtn = $("#whatifAddSaleBtn");
     addSaleBtn?.addEventListener("click", () => {
       const sale = getSaleTweaks();
-      sale.entries.push(createSaleEntry(getSaleDefaultStart()));
+      const entry = createSaleEntry(getSaleDefaultStart());
+      sale.entries.push(entry);
+      saleUIState.set(entry.id, { isEditing: true, draft: createSaleDraftFromEntry(entry) });
       saveWhatIf(WHATIF);
       renderWhatIf();
     });
@@ -4582,64 +4652,110 @@ const shim = {
       const target = event.target;
       const role = target?.getAttribute?.("data-role");
       if (!role) return;
-      if (role === "salePct" || role === "saleTopup") {
+      if (role === "salePct" || role === "saleTopup" || role === "saleName") {
         if (event.type !== "input" && event.type !== "change") return;
       } else if (event.type !== "change") {
         return;
       }
       const wrapper = target.closest("[data-sale-id]");
       if (!wrapper) return;
-      const sale = getSaleTweaks();
       const id = wrapper.getAttribute("data-sale-id");
-      const entry = sale.entries.find((item) => item && item.id === id);
-      if (!entry) return;
+      const state = saleUIState.get(id);
+      if (!state || !state.isEditing) return;
+      const draft = state.draft;
+      if (!draft) return;
       if (role === "salePct") {
-        const value = clampPercent(Number(target.value) / 100, { min: -1, max: 5, fallback: entry.pct });
-        entry.pct = value;
-        entry.lastEdited = "pct";
+        draft.pct = target.value;
+        draft.lastEdited = "pct";
+        const label = wrapper.querySelector(".whatif-sale-mode-label");
+        if (label) label.textContent = "Mode: % uplift";
       } else if (role === "saleTopup") {
-        entry.topup = clampCurrency(target.value, entry.topup);
-        entry.lastEdited = "topup";
+        draft.topup = target.value;
+        draft.lastEdited = "topup";
+        const label = wrapper.querySelector(".whatif-sale-mode-label");
+        if (label) label.textContent = "Mode: $ top-up per day";
       } else if (role === "saleStart") {
         const value = target.value;
         if (!isValidYMDString(value)) {
-          scheduleWhatIfRender();
+          target.value = draft.startDate || "";
           return;
         }
-        entry.startDate = value;
-        if (!isValidYMDString(entry.endDate) || compareYMD(entry.startDate, entry.endDate) > 0) {
-          entry.endDate = entry.startDate;
+        draft.startDate = value;
+        if (isValidYMDString(draft.endDate) && compareYMD(draft.startDate, draft.endDate) > 0) {
+          draft.endDate = draft.startDate;
+          const endInput = wrapper.querySelector("[data-role='saleEnd']");
+          if (endInput) endInput.value = draft.endDate;
         }
       } else if (role === "saleEnd") {
         const value = target.value;
         if (!isValidYMDString(value)) {
-          scheduleWhatIfRender();
+          target.value = draft.endDate || "";
           return;
         }
-        entry.endDate = value;
-        if (isValidYMDString(entry.startDate) && compareYMD(entry.startDate, entry.endDate) > 0) {
-          entry.startDate = entry.endDate;
+        draft.endDate = value;
+        if (isValidYMDString(draft.startDate) && compareYMD(draft.startDate, draft.endDate) > 0) {
+          draft.startDate = draft.endDate;
+          const startInput = wrapper.querySelector("[data-role='saleStart']");
+          if (startInput) startInput.value = draft.startDate;
         }
       } else if (role === "saleBusiness") {
-        entry.businessDaysOnly = Boolean(target.checked);
+        draft.businessDaysOnly = Boolean(target.checked);
+      } else if (role === "saleName") {
+        draft.name = target.value.slice(0, 120);
       } else {
         return;
       }
-      saveWhatIf(WHATIF);
-      scheduleWhatIfRender();
     };
     saleList?.addEventListener("input", handleSaleInput);
     saleList?.addEventListener("change", handleSaleInput);
     saleList?.addEventListener("click", (event) => {
-      const btn = event.target.closest("button[data-role='removeSale']");
-      if (!btn) return;
-      const wrapper = btn.closest("[data-sale-id]");
+      const control = event.target.closest("[data-role]");
+      if (!control) return;
+      const role = control.getAttribute("data-role");
+      if (!role) return;
+      const wrapper = control.closest("[data-sale-id]");
       if (!wrapper) return;
       const id = wrapper.getAttribute("data-sale-id");
       const sale = getSaleTweaks();
-      sale.entries = sale.entries.filter((entry) => entry && entry.id !== id);
-      saveWhatIf(WHATIF);
-      renderWhatIf();
+      if (role === "removeSale") {
+        sale.entries = sale.entries.filter((entry) => entry && entry.id !== id);
+        saleUIState.delete(id);
+        saveWhatIf(WHATIF);
+        renderWhatIf();
+      } else if (role === "editSale") {
+        const entry = sale.entries.find((item) => item && item.id === id);
+        if (!entry) return;
+        const state = ensureSaleUIState(entry);
+        if (!state) return;
+        state.isEditing = true;
+        state.draft = createSaleDraftFromEntry(entry);
+        renderWhatIf();
+      } else if (role === "applySale") {
+        const entry = sale.entries.find((item) => item && item.id === id);
+        const state = saleUIState.get(id);
+        if (!entry || !state) return;
+        const draft = state.draft || createSaleDraftFromEntry(entry);
+        const pct = clampPercent(Number(draft.pct) / 100, { min: -1, max: 5, fallback: entry.pct });
+        const topup = clampCurrency(draft.topup, entry.topup);
+        let startDate = isValidYMDString(draft.startDate) ? draft.startDate : entry.startDate;
+        if (!isValidYMDString(startDate)) startDate = entry.startDate;
+        let endDate = isValidYMDString(draft.endDate) ? draft.endDate : startDate;
+        if (!isValidYMDString(endDate)) endDate = startDate;
+        if (isValidYMDString(startDate) && isValidYMDString(endDate) && compareYMD(startDate, endDate) > 0) {
+          endDate = startDate;
+        }
+        entry.name = (draft.name || "").trim().slice(0, 120);
+        entry.pct = pct;
+        entry.topup = topup;
+        entry.startDate = startDate;
+        entry.endDate = endDate;
+        entry.businessDaysOnly = Boolean(draft.businessDaysOnly);
+        entry.lastEdited = draft.lastEdited === "topup" ? "topup" : "pct";
+        state.isEditing = false;
+        state.draft = createSaleDraftFromEntry(entry);
+        saveWhatIf(WHATIF);
+        renderWhatIf();
+      }
     });
   };
 

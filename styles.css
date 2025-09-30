@@ -187,9 +187,15 @@ main { padding: 20px 0; display: grid; gap: 16px; }
 .whatif-sale-entry { display:flex; flex-direction:column; gap:12px; border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 12px; padding: 12px; background: rgba(255, 255, 255, 0.85); }
 .whatif-sale-entry-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .whatif-sale-entry-title { font-weight:600; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.whatif-sale-entry.is-collapsed { gap: 0; padding: 12px 16px; }
+.whatif-sale-entry-actions { display:flex; align-items:center; gap:8px; }
+.whatif-sale-name { width: 100%; }
+.whatif-sale-name input { width: 100%; }
 .whatif-sale-grid { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 .whatif-sale-mode-label { font-size: 13px; color: var(--muted); }
 .whatif-sale-empty { font-size:13px; color: var(--muted); font-style: italic; }
+.whatif-sale-actions { display:flex; justify-content:flex-end; margin-top: 4px; }
+.whatif-sale-actions .btn { min-width: 96px; }
 .whatif-inline { display:flex; gap:12px; flex-wrap:wrap; }
 .whatif-inline .whatif-fields { flex:1; min-width: 160px; }
 .whatif-table-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
