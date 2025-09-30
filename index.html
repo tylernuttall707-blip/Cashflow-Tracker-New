@@ -239,30 +239,12 @@
 
           <div class="whatif-control-block">
             <h3>Sale Simulator</h3>
-            <label class="whatif-toggle"><input id="whatifSaleEnabled" type="checkbox" /> Enable Sale Scenario</label>
+            <div class="whatif-sale-header">
+              <label class="whatif-toggle"><input id="whatifSaleEnabled" type="checkbox" /> Enable Sale Scenario</label>
+              <button id="whatifAddSaleBtn" class="btn btn-outline" type="button">Add sale window</button>
+            </div>
             <div id="whatifSaleOptions" class="whatif-sale-options">
-              <div class="whatif-sale-grid">
-                <label class="whatif-fields">
-                  <span>% uplift</span>
-                  <input id="whatifSalePercent" type="number" step="1" min="-100" max="500" />
-                </label>
-                <label class="whatif-fields">
-                  <span>$ top-up per day</span>
-                  <input id="whatifSaleTopup" type="number" step="0.01" />
-                </label>
-              </div>
-              <div id="whatifSaleModeLabel" class="whatif-sale-mode-label"></div>
-              <div class="whatif-inline">
-                <div class="whatif-fields">
-                  <label for="whatifSaleStart">Start</label>
-                  <input id="whatifSaleStart" type="date" />
-                </div>
-                <div class="whatif-fields">
-                  <label for="whatifSaleEnd">End</label>
-                  <input id="whatifSaleEnd" type="date" />
-                </div>
-              </div>
-              <label class="whatif-toggle"><input id="whatifSaleBusinessDays" type="checkbox" /> Only apply on business days</label>
+              <div id="whatifSaleList" class="whatif-sale-entries"></div>
             </div>
           </div>
 
