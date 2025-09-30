@@ -378,6 +378,18 @@ const firstWeekday = (value, fallback = 0) => {
     if (Number.isNaN(parsed.getTime())) return false;
     return toYMD(parsed) === value;
   };
+  const createSaleEntry = (startDate) => {
+    const safeStart = isValidYMDString(startDate) ? startDate : todayYMD;
+    return {
+      id: uid(),
+      pct: 0,
+      topup: 0,
+      startDate: safeStart,
+      endDate: safeStart,
+      businessDaysOnly: true,
+      lastEdited: "pct",
+    };
+  };
 
   const normalizeState = (raw, { strict = false } = {}) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -770,21 +782,38 @@ const firstWeekday = (value, fallback = 0) => {
     if (compareYMD(startDate, endDate) > 0) endDate = startDate;
 
     const saleRaw = tweaksRaw.sale && typeof tweaksRaw.sale === "object" ? tweaksRaw.sale : {};
-    const saleStart = isValidYMDString(saleRaw.startDate) ? saleRaw.startDate : startDate;
-    let saleEnd = isValidYMDString(saleRaw.endDate) ? saleRaw.endDate : saleStart;
-    if (compareYMD(saleStart, saleEnd) > 0) saleEnd = saleStart;
-    const salePct = clampPercent(saleRaw.pct, { min: -1, max: 5, fallback: 0 });
-    const saleTopup = clampCurrency(saleRaw.topup, 0);
-    const saleLastEdited = saleRaw.lastEdited === "topup" ? "topup" : "pct";
+    const legacyStart = isValidYMDString(saleRaw.startDate) ? saleRaw.startDate : startDate;
+    let legacyEnd = isValidYMDString(saleRaw.endDate) ? saleRaw.endDate : legacyStart;
+    if (compareYMD(legacyStart, legacyEnd) > 0) legacyEnd = legacyStart;
+    const saleEntriesRaw = Array.isArray(saleRaw.entries) ? saleRaw.entries : null;
+    const legacyEntryNeeded =
+      !saleEntriesRaw &&
+      (saleRaw.startDate || saleRaw.endDate || saleRaw.pct || saleRaw.topup || saleRaw.businessDaysOnly);
+    const combinedEntries = saleEntriesRaw || (legacyEntryNeeded ? [{ ...saleRaw, startDate: legacyStart, endDate: legacyEnd }] : []);
+    const saleEntries = [];
+    for (const rawEntry of combinedEntries) {
+      if (!rawEntry || typeof rawEntry !== "object") continue;
+      const entry = { ...rawEntry };
+      const entryStart = isValidYMDString(entry.startDate) ? entry.startDate : legacyStart;
+      let entryEnd = isValidYMDString(entry.endDate) ? entry.endDate : entryStart;
+      if (compareYMD(entryStart, entryEnd) > 0) entryEnd = entryStart;
+      const entryPct = clampPercent(entry.pct, { min: -1, max: 5, fallback: 0 });
+      const entryTopup = clampCurrency(entry.topup, 0);
+      const lastEdited = entry.lastEdited === "topup" ? "topup" : "pct";
+      const id = typeof entry.id === "string" ? entry.id : uid();
+      saleEntries.push({
+        id,
+        pct: entryPct,
+        topup: entryTopup,
+        startDate: entryStart,
+        endDate: entryEnd,
+        businessDaysOnly: Boolean(entry.businessDaysOnly),
+        lastEdited,
+      });
+    }
     const sale = {
       enabled: Boolean(saleRaw.enabled),
-      mode: "both",
-      pct: salePct,
-      topup: saleTopup,
-      startDate: saleStart,
-      endDate: saleEnd,
-      businessDaysOnly: Boolean(saleRaw.businessDaysOnly),
-      lastEdited: saleLastEdited,
+      entries: saleEntries,
     };
 
     return {
@@ -2514,19 +2543,29 @@ const shim = {
     const transformStreamAmount =
       typeof overrides.transformStreamAmount === "function" ? overrides.transformStreamAmount : null;
     const saleConfig = overrides.sale && typeof overrides.sale === "object" ? overrides.sale : null;
-    const saleEnabled =
-      saleConfig &&
-      saleConfig.enabled &&
-      isValidYMDString(saleConfig.startDate) &&
-      isValidYMDString(saleConfig.endDate);
-    const saleStart = saleEnabled ? saleConfig.startDate : null;
-    const saleEnd = saleEnabled ? saleConfig.endDate : null;
-    const saleMode = saleConfig?.mode === "topup" ? "topup" : "percent";
-    const salePercent = saleEnabled
-      ? clampPercent(saleConfig?.percent, { min: -1, max: 5, fallback: 0 })
-      : 0;
-    const saleTopup = saleEnabled ? clampCurrency(saleConfig?.topup, 0) : 0;
-    const saleBusinessOnly = Boolean(saleConfig?.businessDaysOnly);
+    const saleEntries = [];
+    if (saleConfig && saleConfig.enabled && Array.isArray(saleConfig.entries)) {
+      for (const rawEntry of saleConfig.entries) {
+        if (!rawEntry || typeof rawEntry !== "object") continue;
+        const start = isValidYMDString(rawEntry.startDate) ? rawEntry.startDate : null;
+        if (!start) continue;
+        const rawEnd = isValidYMDString(rawEntry.endDate) ? rawEntry.endDate : start;
+        const pct = clampPercent(rawEntry.pct, { min: -1, max: 5, fallback: 0 });
+        const topup = clampCurrency(rawEntry.topup, 0);
+        const lastEdited = rawEntry.lastEdited === "topup" ? "topup" : "pct";
+        const end = compareYMD(start, rawEnd) > 0 ? start : rawEnd;
+        saleEntries.push({
+          id: rawEntry.id,
+          startDate: start,
+          endDate: end,
+          pct,
+          topup,
+          lastEdited,
+          businessDaysOnly: Boolean(rawEntry.businessDaysOnly),
+        });
+      }
+    }
+    const saleEnabled = saleEntries.length > 0;
 
     const { settings, oneOffs, incomeStreams, adjustments } = state;
     const cal = generateCalendar(settings.startDate, settings.endDate);
@@ -2661,25 +2700,36 @@ const shim = {
     let negativeDays = 0;
 
     for (const row of cal) {
-      if (
-        saleEnabled &&
-        compareYMD(row.date, saleStart) >= 0 &&
-        compareYMD(row.date, saleEnd) <= 0
-      ) {
-        const dow = fromYMD(row.date).getDay();
-        const isBusinessDay = dow >= 1 && dow <= 5;
-        if (!saleBusinessOnly || isBusinessDay) {
-          if (saleMode === "topup") {
-            const boost = round2(saleTopup);
+      const baseIncomeBeforeSales = row.income;
+      if (saleEnabled) {
+        const currentDow = fromYMD(row.date).getDay();
+        const isBusinessDay = currentDow >= 1 && currentDow <= 5;
+        for (const entry of saleEntries) {
+          if (compareYMD(row.date, entry.startDate) < 0) continue;
+          if (compareYMD(row.date, entry.endDate) > 0) continue;
+          if (entry.businessDaysOnly && !isBusinessDay) continue;
+          const windowLabel = entry.startDate
+            ? entry.endDate && entry.endDate !== entry.startDate
+              ? `${entry.startDate}→${entry.endDate}`
+              : entry.startDate
+            : entry.endDate || "";
+          if (entry.lastEdited === "topup") {
+            const boost = round2(entry.topup);
             if (boost) {
               row.income += boost;
-              row.incomeDetails.push({ source: "Sale top-up", amount: boost });
+              row.incomeDetails.push({
+                source: windowLabel ? `Sale top-up (${windowLabel})` : "Sale top-up",
+                amount: boost,
+              });
             }
-          } else if (salePercent > 0) {
-            const boost = round2(row.income * salePercent);
+          } else if (entry.pct > 0) {
+            const boost = round2(baseIncomeBeforeSales * entry.pct);
             if (boost) {
               row.income += boost;
-              row.incomeDetails.push({ source: "Sale uplift", amount: boost });
+              row.incomeDetails.push({
+                source: windowLabel ? `Sale uplift (${windowLabel})` : "Sale uplift",
+                amount: boost,
+              });
             }
           }
         }
@@ -3758,26 +3808,61 @@ const shim = {
     }
 
     const streamTweaks = tweaks.streams || (tweaks.streams = {});
-    const saleTweaks = tweaks.sale ||
-      (tweaks.sale = {
-        enabled: false,
-        mode: "both",
-        pct: 0,
-        topup: 0,
-        startDate,
-        endDate: startDate,
-        businessDaysOnly: true,
-        lastEdited: "pct",
-      });
-    saleTweaks.pct = clampPercent(saleTweaks.pct, { min: -1, max: 5, fallback: 0 });
-    saleTweaks.topup = clampCurrency(saleTweaks.topup, 0);
-    if (!isValidYMDString(saleTweaks.startDate)) saleTweaks.startDate = startDate;
-    if (!isValidYMDString(saleTweaks.endDate) || compareYMD(saleTweaks.startDate, saleTweaks.endDate) > 0) {
-      saleTweaks.endDate = saleTweaks.startDate;
+    const saleTweaks = tweaks.sale || (tweaks.sale = { enabled: false, entries: [] });
+    saleTweaks.enabled = Boolean(saleTweaks.enabled);
+    if (!Array.isArray(saleTweaks.entries)) {
+      saleTweaks.entries = [];
+      mutated = true;
     }
-    if (!["pct", "topup"].includes(saleTweaks.lastEdited)) {
-      saleTweaks.lastEdited = "pct";
+    let saleMutated = false;
+    const validSaleEntries = [];
+    for (const entry of saleTweaks.entries) {
+      if (!entry || typeof entry !== "object") {
+        saleMutated = true;
+        continue;
+      }
+      if (typeof entry.id !== "string") {
+        entry.id = uid();
+        saleMutated = true;
+      }
+      const pct = clampPercent(entry.pct, { min: -1, max: 5, fallback: 0 });
+      if (pct !== entry.pct) {
+        entry.pct = pct;
+        saleMutated = true;
+      }
+      const topup = clampCurrency(entry.topup, 0);
+      if (topup !== entry.topup) {
+        entry.topup = topup;
+        saleMutated = true;
+      }
+      if (!isValidYMDString(entry.startDate)) {
+        entry.startDate = startDate;
+        saleMutated = true;
+      }
+      if (!isValidYMDString(entry.endDate)) {
+        entry.endDate = entry.startDate;
+        saleMutated = true;
+      }
+      if (compareYMD(entry.startDate, entry.endDate) > 0) {
+        entry.endDate = entry.startDate;
+        saleMutated = true;
+      }
+      entry.businessDaysOnly = Boolean(entry.businessDaysOnly);
+      if (entry.lastEdited !== "topup" && entry.lastEdited !== "pct") {
+        entry.lastEdited = "pct";
+        saleMutated = true;
+      }
+      validSaleEntries.push(entry);
     }
+    if (validSaleEntries.length !== saleTweaks.entries.length) {
+      saleMutated = true;
+    }
+    saleTweaks.entries = validSaleEntries;
+    if (saleTweaks.enabled && !saleTweaks.entries.length) {
+      saleTweaks.entries.push(createSaleEntry(startDate));
+      saleMutated = true;
+    }
+    if (saleMutated) mutated = true;
 
     const actualProjection = computeProjection(STATE);
 
@@ -3929,18 +4014,59 @@ const shim = {
     if (saleEnabledEl) saleEnabledEl.checked = Boolean(saleTweaks.enabled);
     const saleOptions = $("#whatifSaleOptions");
     if (saleOptions) saleOptions.hidden = !saleTweaks.enabled;
-    const salePercentInput = $("#whatifSalePercent");
-    if (salePercentInput && document.activeElement !== salePercentInput) salePercentInput.value = String(Math.round(saleTweaks.pct * 100));
-    const saleTopupInput = $("#whatifSaleTopup");
-    if (saleTopupInput && document.activeElement !== saleTopupInput) saleTopupInput.value = String(round2(saleTweaks.topup));
-    const saleModeLabel = $("#whatifSaleModeLabel");
-    if (saleModeLabel) saleModeLabel.textContent = saleTweaks.lastEdited === "topup" ? "Last edited: $ top-up dominates" : "Last edited: % uplift dominates";
-    const saleStartInput = $("#whatifSaleStart");
-    if (saleStartInput && document.activeElement !== saleStartInput) saleStartInput.value = saleTweaks.startDate || startDate || "";
-    const saleEndInput = $("#whatifSaleEnd");
-    if (saleEndInput && document.activeElement !== saleEndInput) saleEndInput.value = saleTweaks.endDate || saleTweaks.startDate || "";
-    const saleBusinessInput = $("#whatifSaleBusinessDays");
-    if (saleBusinessInput) saleBusinessInput.checked = Boolean(saleTweaks.businessDaysOnly);
+    const addSaleBtn = $("#whatifAddSaleBtn");
+    if (addSaleBtn) addSaleBtn.disabled = !saleTweaks.enabled;
+    const saleList = $("#whatifSaleList");
+    if (saleList) {
+      if (!saleTweaks.entries.length) {
+        saleList.innerHTML = '<p class="whatif-sale-empty">No sale windows configured.</p>';
+      } else {
+        saleList.innerHTML = saleTweaks.entries
+          .map((entry, idx) => {
+            const pctValue = Math.round(entry.pct * 100);
+            const topupValue = entry.topup.toFixed(2);
+            const modeText = entry.lastEdited === "topup" ? "Mode: $ top-up per day" : "Mode: % uplift";
+            const rangeLabel = entry.startDate
+              ? entry.endDate && entry.endDate !== entry.startDate
+                ? `${fmtDate(entry.startDate)} → ${fmtDate(entry.endDate)}`
+                : fmtDate(entry.startDate)
+              : "";
+            return `
+<div class="whatif-sale-entry" data-sale-id="${entry.id}">
+  <div class="whatif-sale-entry-head">
+    <div class="whatif-sale-entry-title">Sale window ${idx + 1}${rangeLabel ? ` · ${escapeHtml(rangeLabel)}` : ""}</div>
+    <button type="button" class="link" data-role="removeSale">Remove</button>
+  </div>
+  <div class="whatif-sale-grid">
+    <label class="whatif-fields">
+      <span>% uplift</span>
+      <input type="number" data-role="salePct" min="-100" max="500" step="1" value="${escapeHtml(String(pctValue))}" />
+    </label>
+    <label class="whatif-fields">
+      <span>$ top-up per day</span>
+      <input type="number" data-role="saleTopup" step="0.01" value="${escapeHtml(topupValue)}" />
+    </label>
+  </div>
+  <div class="whatif-sale-mode-label">${escapeHtml(modeText)}</div>
+  <div class="whatif-inline">
+    <div class="whatif-fields">
+      <label>Start</label>
+      <input type="date" data-role="saleStart" value="${escapeHtml(entry.startDate || "")}" />
+    </div>
+    <div class="whatif-fields">
+      <label>End</label>
+      <input type="date" data-role="saleEnd" value="${escapeHtml(entry.endDate || "")}" />
+    </div>
+  </div>
+  <label class="whatif-toggle">
+    <input type="checkbox" data-role="saleBusiness" ${entry.businessDaysOnly ? "checked" : ""} />
+    Only apply on business days
+  </label>
+</div>`;
+          })
+          .join("");
+      }
+    }
 
     const whatIfProjection = computeProjection(baseState, {
       transformStreamAmount: ({ stream, baseAmount }) => {
@@ -3962,12 +4088,15 @@ const shim = {
       },
       sale: {
         enabled: saleTweaks.enabled,
-        mode: saleTweaks.lastEdited === "topup" ? "topup" : "percent",
-        pct: saleTweaks.pct,
-        topup: saleTweaks.topup,
-        startDate: saleTweaks.startDate,
-        endDate: saleTweaks.endDate,
-        businessDaysOnly: saleTweaks.businessDaysOnly,
+        entries: saleTweaks.entries.map((entry) => ({
+          id: entry.id,
+          startDate: entry.startDate,
+          endDate: entry.endDate,
+          pct: entry.pct,
+          topup: entry.topup,
+          lastEdited: entry.lastEdited,
+          businessDaysOnly: entry.businessDaysOnly,
+        })),
       },
     });
 
@@ -4270,6 +4399,24 @@ const shim = {
       return WHATIF.tweaks.global;
     };
 
+    const getSaleTweaks = () => {
+      if (!WHATIF.tweaks.sale || typeof WHATIF.tweaks.sale !== "object") {
+        WHATIF.tweaks.sale = { enabled: false, entries: [] };
+      }
+      if (!Array.isArray(WHATIF.tweaks.sale.entries)) {
+        WHATIF.tweaks.sale.entries = [];
+      }
+      return WHATIF.tweaks.sale;
+    };
+
+    const getSaleDefaultStart = () => {
+      const sandboxStart = WHATIF.tweaks.startDate;
+      if (isValidYMDString(sandboxStart)) return sandboxStart;
+      const baseSettings = WHATIF.base?.settings || defaultState().settings;
+      if (isValidYMDString(baseSettings.startDate)) return baseSettings.startDate;
+      return todayYMD;
+    };
+
     const updateGlobalPct = (raw) => {
       const value = clampPercent(Number(raw) / 100, { min: -1, max: 2, fallback: getGlobalTweaks().pct });
       const global = getGlobalTweaks();
@@ -4413,63 +4560,86 @@ const shim = {
 
     const saleEnabled = $("#whatifSaleEnabled");
     saleEnabled?.addEventListener("change", (e) => {
-      WHATIF.tweaks.sale.enabled = Boolean(e.target.checked);
+      const sale = getSaleTweaks();
+      sale.enabled = Boolean(e.target.checked);
+      if (sale.enabled && !sale.entries.length) {
+        sale.entries.push(createSaleEntry(getSaleDefaultStart()));
+      }
       saveWhatIf(WHATIF);
-      scheduleWhatIfRender();
+      renderWhatIf();
     });
 
-    const salePercent = $("#whatifSalePercent");
-    salePercent?.addEventListener("change", (e) => {
-      const value = clampPercent(Number(e.target.value) / 100, { min: -1, max: 5, fallback: WHATIF.tweaks.sale.pct });
-      WHATIF.tweaks.sale.pct = value;
-      WHATIF.tweaks.sale.lastEdited = "pct";
+    const addSaleBtn = $("#whatifAddSaleBtn");
+    addSaleBtn?.addEventListener("click", () => {
+      const sale = getSaleTweaks();
+      sale.entries.push(createSaleEntry(getSaleDefaultStart()));
       saveWhatIf(WHATIF);
-      scheduleWhatIfRender();
+      renderWhatIf();
     });
 
-    const saleTopup = $("#whatifSaleTopup");
-    saleTopup?.addEventListener("change", (e) => {
-      WHATIF.tweaks.sale.topup = clampCurrency(e.target.value, WHATIF.tweaks.sale.topup);
-      WHATIF.tweaks.sale.lastEdited = "topup";
-      saveWhatIf(WHATIF);
-      scheduleWhatIfRender();
-    });
-
-    const saleStart = $("#whatifSaleStart");
-    saleStart?.addEventListener("change", (e) => {
-      const value = e.target.value;
-      if (!isValidYMDString(value)) {
-        e.target.value = WHATIF.tweaks.sale.startDate || WHATIF.tweaks.startDate || "";
+    const saleList = $("#whatifSaleList");
+    const handleSaleInput = (event) => {
+      const target = event.target;
+      const role = target?.getAttribute?.("data-role");
+      if (!role) return;
+      if (role === "salePct" || role === "saleTopup") {
+        if (event.type !== "input" && event.type !== "change") return;
+      } else if (event.type !== "change") {
         return;
       }
-      WHATIF.tweaks.sale.startDate = value;
-      if (!isValidYMDString(WHATIF.tweaks.sale.endDate) || compareYMD(WHATIF.tweaks.sale.startDate, WHATIF.tweaks.sale.endDate) > 0) {
-        WHATIF.tweaks.sale.endDate = WHATIF.tweaks.sale.startDate;
-      }
-      saveWhatIf(WHATIF);
-      scheduleWhatIfRender();
-    });
-
-    const saleEnd = $("#whatifSaleEnd");
-    saleEnd?.addEventListener("change", (e) => {
-      const value = e.target.value;
-      if (!isValidYMDString(value)) {
-        e.target.value = WHATIF.tweaks.sale.endDate || WHATIF.tweaks.sale.startDate || "";
+      const wrapper = target.closest("[data-sale-id]");
+      if (!wrapper) return;
+      const sale = getSaleTweaks();
+      const id = wrapper.getAttribute("data-sale-id");
+      const entry = sale.entries.find((item) => item && item.id === id);
+      if (!entry) return;
+      if (role === "salePct") {
+        const value = clampPercent(Number(target.value) / 100, { min: -1, max: 5, fallback: entry.pct });
+        entry.pct = value;
+        entry.lastEdited = "pct";
+      } else if (role === "saleTopup") {
+        entry.topup = clampCurrency(target.value, entry.topup);
+        entry.lastEdited = "topup";
+      } else if (role === "saleStart") {
+        const value = target.value;
+        if (!isValidYMDString(value)) {
+          scheduleWhatIfRender();
+          return;
+        }
+        entry.startDate = value;
+        if (!isValidYMDString(entry.endDate) || compareYMD(entry.startDate, entry.endDate) > 0) {
+          entry.endDate = entry.startDate;
+        }
+      } else if (role === "saleEnd") {
+        const value = target.value;
+        if (!isValidYMDString(value)) {
+          scheduleWhatIfRender();
+          return;
+        }
+        entry.endDate = value;
+        if (isValidYMDString(entry.startDate) && compareYMD(entry.startDate, entry.endDate) > 0) {
+          entry.startDate = entry.endDate;
+        }
+      } else if (role === "saleBusiness") {
+        entry.businessDaysOnly = Boolean(target.checked);
+      } else {
         return;
       }
-      WHATIF.tweaks.sale.endDate = value;
-      if (isValidYMDString(WHATIF.tweaks.sale.startDate) && compareYMD(WHATIF.tweaks.sale.startDate, WHATIF.tweaks.sale.endDate) > 0) {
-        WHATIF.tweaks.sale.startDate = WHATIF.tweaks.sale.endDate;
-      }
       saveWhatIf(WHATIF);
       scheduleWhatIfRender();
-    });
-
-    const saleBusiness = $("#whatifSaleBusinessDays");
-    saleBusiness?.addEventListener("change", (e) => {
-      WHATIF.tweaks.sale.businessDaysOnly = Boolean(e.target.checked);
+    };
+    saleList?.addEventListener("input", handleSaleInput);
+    saleList?.addEventListener("change", handleSaleInput);
+    saleList?.addEventListener("click", (event) => {
+      const btn = event.target.closest("button[data-role='removeSale']");
+      if (!btn) return;
+      const wrapper = btn.closest("[data-sale-id]");
+      if (!wrapper) return;
+      const id = wrapper.getAttribute("data-sale-id");
+      const sale = getSaleTweaks();
+      sale.entries = sale.entries.filter((entry) => entry && entry.id !== id);
       saveWhatIf(WHATIF);
-      scheduleWhatIfRender();
+      renderWhatIf();
     });
   };
 
