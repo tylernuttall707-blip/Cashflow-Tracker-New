@@ -1,13 +1,16 @@
 /* 2025 Cash Flow — all client-side, localStorage powered */
 
+import { toYMD, fromYMD, compareYMD, addDays, isWeekend, parseExcelOrISODate } from "./modules/dateUtils.js";
+import { clamp, clampPercent, clampCurrency, sanitizeOneOff, sanitizeStream } from "./modules/validation.js";
+import { loadState, saveState, loadWhatIfState, saveWhatIfState } from "./modules/storage.js";
+import { fmtMoney, parseMoney, round2, computeEffectiveAmount } from "./modules/calculations.js";
+
 (() => {
   "use strict";
 
   // ---------- Utilities ----------
   const $ = (sel, ctx = document) => ctx.querySelector(sel);
   const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
-  const fmtMoney = (n) =>
-    (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtDate = (ymd) => {
     if (!ymd) return "";
     try {
@@ -18,23 +21,12 @@
       return ymd;
     }
   };
-  const pad = (n) => String(n).padStart(2, "0");
-  const toYMD = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const fromYMD = (s) => {
-    const [y, m, d] = s.split("-").map(Number);
-    return new Date(y, m - 1, d);
-  };
   const escapeHtml = (value) =>
     String(value ?? "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
-  const round2 = (value) => {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return 0;
-    return Math.round(num * 100) / 100;
-  };
   const fmtCount = (value) => {
     const num = Number(value || 0);
     return Number.isFinite(num) ? num.toLocaleString() : "0";
@@ -45,15 +37,6 @@
     } catch {
       return null;
     }
-  };
-  const addDays = (ymd, days = 0) => {
-    if (!ymd || typeof ymd !== "string") return ymd;
-    const delta = Number(days || 0);
-    if (!Number.isFinite(delta)) return ymd;
-    const d = fromYMD(ymd);
-    if (Number.isNaN(d.getTime())) return ymd;
-    d.setDate(d.getDate() + delta);
-    return toYMD(d);
   };
   const rollWeekend = (ymd, policy = "forward") => {
     if (!ymd || typeof ymd !== "string") return ymd;
@@ -76,100 +59,7 @@
     }
     return toYMD(d);
   };
-  const parseCurrency = (value) => {
-    if (value === null || value === undefined || value === "") return NaN;
-    if (typeof value === "number") {
-      return Number.isFinite(value) ? value : NaN;
-    }
-    let str = String(value).trim();
-    if (!str) return NaN;
-    let negative = false;
-    if (/^\((.*)\)$/.test(str)) {
-      negative = true;
-      str = str.slice(1, -1);
-    }
-    str = str.replace(/[−–—]/g, "-");
-    if (str.endsWith("-")) {
-      negative = true;
-      str = str.slice(0, -1);
-    }
-    if (str.startsWith("-")) {
-      negative = true;
-      str = str.slice(1);
-    }
-    str = str.replace(/[^0-9.,]/g, "");
-    if (!str) return NaN;
-    const hasComma = str.includes(",");
-    const hasDot = str.includes(".");
-    if (hasComma && hasDot) {
-      if (str.lastIndexOf(",") > str.lastIndexOf(".")) {
-        str = str.replace(/\./g, "");
-        str = str.replace(/,/g, ".");
-      } else {
-        str = str.replace(/,/g, "");
-      }
-    } else if (hasComma) {
-      const parts = str.split(",");
-      if (parts.length > 1 && parts[parts.length - 1].length === 2) {
-        str = parts.slice(0, -1).join("") + "." + parts[parts.length - 1];
-      } else {
-        str = parts.join("");
-      }
-    } else {
-      str = str.replace(/,/g, "");
-    }
-    const num = Number(str);
-    if (!Number.isFinite(num)) return NaN;
-    return negative ? -num : num;
-  };
-  const parseExcelOrISODate = (value) => {
-    if (value === null || value === undefined || value === "") return null;
-    if (value instanceof Date) {
-      if (Number.isNaN(value.getTime())) return null;
-      return toYMD(value);
-    }
-    if (typeof value === "number" && Number.isFinite(value)) {
-      const serial = Number(value);
-      const whole = Math.floor(serial);
-      const frac = serial - whole;
-      let days = whole;
-      if (days > 59) days -= 1; // Excel leap year bug
-      const epoch = Date.UTC(1899, 11, 31);
-      const ms = epoch + days * 86400000 + Math.round(frac * 86400000);
-      const dt = new Date(ms);
-      if (Number.isNaN(dt.getTime())) return null;
-      return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
-    }
-    const str = String(value).trim();
-    if (!str) return null;
-    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(str)) {
-      const [y, m, d] = str.split("-").map(Number);
-      const dt = new Date(y, m - 1, d);
-      if (Number.isNaN(dt.getTime())) return null;
-      return toYMD(dt);
-    }
-    const [datePart] = str.split(/\s+/);
-    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(datePart)) {
-      const parts = datePart.split(/[\/\-]/).map((seg) => seg.trim());
-      if (parts.length === 3) {
-        const [m, d, yRaw] = parts;
-        let year = Number(yRaw);
-        const month = Number(m);
-        const day = Number(d);
-        if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
-        if (year < 100) year += year >= 70 ? 1900 : 2000;
-        const dt = new Date(year, month - 1, day);
-        if (Number.isNaN(dt.getTime())) return null;
-        return toYMD(dt);
-      }
-    }
-    const parsed = new Date(str);
-    if (Number.isNaN(parsed.getTime())) return null;
-    return toYMD(parsed);
-  };
-  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
   const uid = () => Math.random().toString(36).slice(2, 9);
-  const compareYMD = (a, b) => String(a || "").localeCompare(String(b || ""));
   const compareText = (a, b) =>
     String(a ?? "").localeCompare(String(b ?? ""), undefined, { sensitivity: "base" }) ||
     String(a ?? "").localeCompare(String(b ?? ""));
@@ -458,189 +348,15 @@ const firstWeekday = (value, fallback = 0) => {
     ensureArray("oneOffs");
     ensureArray("incomeStreams");
 
-    const sanitizeSteps = (value) => {
-      if (!Array.isArray(value)) return [];
-      return value
-        .map((step) => {
-          if (!step || typeof step !== "object" || Array.isArray(step)) return null;
-          const effectiveFrom =
-            typeof step.effectiveFrom === "string" && isValidYMDString(step.effectiveFrom)
-              ? step.effectiveFrom
-              : null;
-          const amount = Number(step.amount || 0);
-          if (!effectiveFrom || !Number.isFinite(amount)) return null;
-          return { effectiveFrom, amount: Math.abs(amount) };
-        })
-        .filter((step) => step !== null)
-        .sort((a, b) => compareYMD(a.effectiveFrom, b.effectiveFrom));
-    };
-
-    const sanitizeOneOff = (entry) => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-        if (strict) throw new Error("Invalid one-off record");
-        return null;
-      }
-
-      const amount = Number(entry.amount || 0);
-      if (!Number.isFinite(amount)) {
-        if (strict) throw new Error("Invalid one-off amount");
-        return null;
-      }
-
-      const type = entry.type === "income" ? "income" : "expense";
-      const id = typeof entry.id === "string" ? entry.id : uid();
-      const result = {
-        id,
-        type,
-        name: typeof entry.name === "string" ? entry.name : "",
-        category: typeof entry.category === "string" ? entry.category : "",
-        amount: Math.abs(amount),
-        recurring: Boolean(entry.recurring),
-      };
-
-      if (entry.note !== undefined) result.note = entry.note;
-      result.steps = sanitizeSteps(entry.steps);
-      const escalator = Number(entry.escalatorPct || 0);
-      result.escalatorPct = Number.isFinite(escalator) ? escalator : 0;
-
-      if (result.recurring) {
-        const frequency = typeof entry.frequency === "string" ? entry.frequency : null;
-        const startDate = typeof entry.startDate === "string" ? entry.startDate : null;
-        const endDate = typeof entry.endDate === "string" ? entry.endDate : null;
-        const datesValid =
-          frequency && startDate && endDate && isValidYMDString(startDate) && isValidYMDString(endDate);
-        if (!datesValid) {
-          if (strict) throw new Error("Invalid recurring one-off metadata");
-          return null;
-        }
-        result.frequency = frequency;
-        result.startDate = startDate;
-        result.endDate = endDate;
-        if (compareYMD(result.startDate, result.endDate) > 0) {
-          if (strict) throw new Error("Invalid recurring one-off range");
-          result.endDate = result.startDate;
-        }
-        result.skipWeekends = Boolean(entry.skipWeekends);
-
-        if (entry.dayOfWeek !== undefined) {
-          result.dayOfWeek = toWeekdayArray(entry.dayOfWeek);
-        }
-        if (entry.dayOfMonth !== undefined) {
-          result.dayOfMonth = clamp(Number(entry.dayOfMonth || 1), 1, 31);
-        }
-
-        if (frequency === "monthly") {
-          const monthlyMode = entry.monthlyMode === "nth" ? "nth" : "day";
-          if (monthlyMode === "nth") {
-            result.monthlyMode = "nth";
-            result.nthWeek = normalizeNth(entry.nthWeek);
-            const nthWeekdaySource =
-              entry.nthWeekday !== undefined
-                ? entry.nthWeekday
-                : entry.dayOfWeek !== undefined
-                ? entry.dayOfWeek
-                : result.dayOfWeek ?? 0;
-            result.nthWeekday = firstWeekday(nthWeekdaySource, 0);
-          } else {
-            result.monthlyMode = "day";
-            const domSource =
-              entry.dayOfMonth !== undefined ? entry.dayOfMonth : result.dayOfMonth ?? 1;
-            result.dayOfMonth = clamp(Number(domSource || 1), 1, 31);
-          }
-        } else {
-          result.monthlyMode = "day";
-        }
-        if (frequency === "weekly" || frequency === "biweekly") {
-          result.dayOfWeek = toWeekdayArray(result.dayOfWeek);
-        }
-        if (result.monthlyMode !== "nth") {
-          delete result.nthWeek;
-          delete result.nthWeekday;
-        }
-        if (typeof entry.onDate === "string") result.onDate = entry.onDate;
-        if (typeof entry.date === "string") result.date = entry.date;
-        else result.date = result.startDate;
-      } else {
-        const date = typeof entry.date === "string" ? entry.date : null;
-        if (!date) {
-          if (strict) throw new Error("Invalid one-off date");
-          return null;
-        }
-        result.date = date;
-        result.steps = [];
-        result.escalatorPct = 0;
-      }
-
-      return result;
-    };
-
     const sanitizeList = (list) =>
       list
-        .map((item) => sanitizeOneOff(item))
+        .map((item) => sanitizeOneOff(item, strict))
         .filter((item) => item !== null);
 
     state.oneOffs = sanitizeList(state.oneOffs);
 
-    const sanitizeStream = (entry) => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-        if (strict) throw new Error("Invalid income stream record");
-        return null;
-      }
-
-      const amount = Number(entry.amount || 0);
-      if (!Number.isFinite(amount)) {
-        if (strict) throw new Error("Invalid income stream amount");
-        return null;
-      }
-
-      const frequency = typeof entry.frequency === "string" ? entry.frequency : "once";
-      const startDate = typeof entry.startDate === "string" ? entry.startDate : typeof entry.onDate === "string" ? entry.onDate : null;
-      const endDate = typeof entry.endDate === "string" ? entry.endDate : typeof entry.onDate === "string" ? entry.onDate : null;
-      const datesValid = startDate && endDate && isValidYMDString(startDate) && isValidYMDString(endDate);
-      if (!datesValid) {
-        if (strict) throw new Error("Invalid income stream date range");
-        return null;
-      }
-
-      const startVsEnd = compareYMD(startDate, endDate);
-      const normalizedStart = startVsEnd <= 0 ? startDate : endDate;
-      const normalizedEnd = startVsEnd <= 0 ? endDate : startDate;
-
-      const id = typeof entry.id === "string" ? entry.id : uid();
-      const stream = {
-        id,
-        name: typeof entry.name === "string" ? entry.name : "",
-        category: typeof entry.category === "string" ? entry.category : "",
-        amount: Math.abs(amount),
-        frequency,
-        startDate: normalizedStart,
-        endDate: normalizedEnd,
-        onDate: typeof entry.onDate === "string" ? entry.onDate : null,
-        skipWeekends: Boolean(entry.skipWeekends),
-        dayOfWeek: clamp(Number(entry.dayOfWeek ?? 0), 0, 6),
-        dayOfMonth: clamp(Number(entry.dayOfMonth ?? 1), 1, 31),
-        steps: sanitizeSteps(entry.steps),
-        escalatorPct: Number.isFinite(Number(entry.escalatorPct || 0)) ? Number(entry.escalatorPct || 0) : 0,
-      };
-
-      if (frequency === "once") {
-        stream.onDate = typeof entry.onDate === "string" ? entry.onDate : stream.startDate;
-      }
-      if (frequency === "daily") {
-        stream.skipWeekends = Boolean(entry.skipWeekends);
-      }
-      if (frequency === "weekly" || frequency === "biweekly") {
-        stream.dayOfWeek = clamp(Number(entry.dayOfWeek ?? 0), 0, 6);
-      }
-      if (frequency === "monthly") {
-        stream.dayOfMonth = clamp(Number(entry.dayOfMonth ?? 1), 1, 31);
-      }
-
-      return stream;
-    };
-
     state.incomeStreams = state.incomeStreams
-      .map((entry) => sanitizeStream(entry))
+      .map((entry) => sanitizeStream(entry, strict))
       .filter((entry) => entry !== null);
 
 
@@ -664,7 +380,7 @@ const firstWeekday = (value, fallback = 0) => {
               typeof stream.startDate === "string" ? stream.startDate : fallbackStart,
             endDate: typeof stream.endDate === "string" ? stream.endDate : fallbackEnd,
           };
-          return sanitizeOneOff(candidate);
+          return sanitizeOneOff(candidate, strict);
         })
         .filter((item) => item !== null);
       if (mapped.length) {
@@ -703,41 +419,6 @@ const firstWeekday = (value, fallback = 0) => {
     }
 
     return state;
-  };
-
-  const load = () => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return defaultState();
-      const data = JSON.parse(raw);
-      return normalizeState(data);
-    } catch {
-      return defaultState();
-    }
-  };
-
-  const save = (state) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  };
-
-  const clampPercent = (value, { min = -1, max = 2, fallback = 0 } = {}) => {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return fallback;
-    return Math.max(min, Math.min(max, Math.round(num * 1000) / 1000));
-  };
-
-  const clampCurrency = (value, fallback = 0) => {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return fallback;
-    return round2(num);
-  };
-
-  const computeEffectiveAmount = (base, pct, delta) => {
-    const b = Number(base || 0);
-    const p = Number(pct || 0);
-    const d = Number(delta || 0);
-    if (!Number.isFinite(b) || !Number.isFinite(p) || !Number.isFinite(d)) return 0;
-    return round2(b * (1 + p) + d);
   };
 
   const resolvePercentFromEffective = (base, effective, delta = 0) => {
@@ -880,24 +561,8 @@ const firstWeekday = (value, fallback = 0) => {
     return computeEffectiveAmount(globalAdjusted, entry.pct, entry.delta);
   };
 
-  const loadWhatIf = (fallbackBase) => {
-    const fallback = fallbackBase || defaultState();
-    try {
-      const raw = localStorage.getItem(WHATIF_STORAGE_KEY);
-      if (!raw) return sanitizeWhatIfState({ base: fallback }, fallback);
-      const data = JSON.parse(raw);
-      return sanitizeWhatIfState(data, fallback);
-    } catch {
-      return sanitizeWhatIfState({ base: fallback }, fallback);
-    }
-  };
-
-  const saveWhatIf = (sandbox) => {
-    localStorage.setItem(WHATIF_STORAGE_KEY, JSON.stringify(sandbox));
-  };
-
-  let STATE = load();
-  let WHATIF = loadWhatIf(STATE);
+  let STATE = loadState();
+  let WHATIF = loadWhatIfState(STATE);
 
 STATE.incomeStreams = (STATE.incomeStreams || []).map((stream) => {
   if (!stream || typeof stream !== "object") return stream;
@@ -1791,7 +1456,7 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
       const bucketValues = bucketColumns.map((column) => ({
         column,
         raw: raw[column],
-        number: parseCurrency(raw[column]),
+      number: parseMoney(raw[column]),
       }));
       const bucketHasAny = bucketValues.some((entry) => !isEmptyCell(entry.raw));
       const bucketSum = bucketValues.reduce(
@@ -1821,7 +1486,7 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
         }
       }
 
-      let baseAmount = parseCurrency(amountRaw);
+      let baseAmount = parseMoney(amountRaw);
       const hasMappedAmount = Number.isFinite(baseAmount) && baseAmount !== 0;
       const hasBucketAmount = bucketColumns.length > 0 && (bucketHasNonZero || (!hasMappedAmount && bucketHasAny));
       if (hasBucketAmount) {
@@ -2291,7 +1956,7 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     }
 
     if (changed) {
-      save(STATE);
+      saveState(STATE);
       recalcAndRender();
     }
 
@@ -2848,7 +2513,7 @@ const shim = {
       const endDate = $("#endDate").value || defaultEnd;
       const startingBalance = Number($("#startingBalance").value || 0);
       STATE.settings = { startDate, endDate, startingBalance };
-      save(STATE);
+      saveState(STATE);
       recalcAndRender();
     });
   };
@@ -2878,7 +2543,7 @@ const shim = {
       const note = $("#adjNote").value.trim();
       if (!date || isNaN(amount)) return;
       STATE.adjustments.push({ id: uid(), date, amount, note });
-      save(STATE);
+      saveState(STATE);
       $("#adjForm").reset();
       recalcAndRender();
     });
@@ -2888,7 +2553,7 @@ const shim = {
       if (!btn) return;
       const id = btn.getAttribute("data-id");
       STATE.adjustments = STATE.adjustments.filter((a) => a.id !== id);
-      save(STATE);
+      saveState(STATE);
       recalcAndRender();
     });
   };
@@ -2984,7 +2649,7 @@ const shim = {
       sortState.direction = "asc";
       changed = true;
     }
-    if (changed) save(STATE);
+    if (changed) saveState(STATE);
     return changed;
   };
 
@@ -3346,7 +3011,7 @@ const shim = {
 
       const removalSet = new Set(removal);
       STATE.oneOffs = (STATE.oneOffs || []).filter((entry) => !removalSet.has(entry));
-      save(STATE);
+      saveState(STATE);
       recalcAndRender();
       alert(`${fmtCount(removalCount)} duplicate ${removalCount === 1 ? "entry" : "entries"} removed.`);
     });
@@ -3433,7 +3098,7 @@ const shim = {
         STATE.oneOffs.push(entry);
       }
 
-      save(STATE);
+      saveState(STATE);
       resetOneOffForm();
       recalcAndRender();
     });
@@ -3449,7 +3114,7 @@ const shim = {
         if (editingOneOffId === id) {
           resetOneOffForm();
         }
-        save(STATE);
+        saveState(STATE);
         recalcAndRender();
       } else if (act === "editOneOff") {
         startOneOffEdit(id);
@@ -3571,7 +3236,7 @@ const shim = {
       stream.escalatorPct = Number.isFinite(escalatorRaw) ? escalatorRaw : 0;
 
       STATE.incomeStreams.push(stream);
-      save(STATE);
+      saveState(STATE);
       $("#streamForm").reset();
       $("#stFreq").value = "once";
       showFreqBlocks();
@@ -3585,7 +3250,7 @@ const shim = {
       if (!btn) return;
       const id = btn.getAttribute("data-id");
       STATE.incomeStreams = STATE.incomeStreams.filter((s) => s.id !== id);
-      save(STATE);
+      saveState(STATE);
       recalcAndRender();
     });
   };
@@ -3816,7 +3481,7 @@ const shim = {
         ? Object.keys(WHATIF.tweaks.streams)
         : [];
     if (nextKeys.length !== prevKeys.length) {
-      saveWhatIf(WHATIF);
+      saveWhatIfState(WHATIF);
     }
 
     const tweaks = WHATIF.tweaks || {};
@@ -3958,7 +3623,7 @@ const shim = {
     }
 
     if (mutated) {
-      saveWhatIf(WHATIF);
+      saveWhatIfState(WHATIF);
     }
 
     const startInput = $("#whatifStartDate");
@@ -4397,7 +4062,7 @@ const shim = {
   const bindWhatIf = () => {
     $("#whatifPullBtn")?.addEventListener("click", () => {
       WHATIF = sanitizeWhatIfState({ base: STATE }, STATE);
-      saveWhatIf(WHATIF);
+      saveWhatIfState(WHATIF);
       renderWhatIf();
     });
 
@@ -4418,7 +4083,7 @@ const shim = {
       try {
         const payload = JSON.parse($("#whatifImportText").value);
         WHATIF = sanitizeWhatIfState(payload, STATE);
-        saveWhatIf(WHATIF);
+        saveWhatIfState(WHATIF);
         importDialog?.close();
         renderWhatIf();
       } catch (err) {
@@ -4442,7 +4107,7 @@ const shim = {
       if (!isValidYMDString(WHATIF.tweaks.endDate) || compareYMD(WHATIF.tweaks.startDate, WHATIF.tweaks.endDate) > 0) {
         WHATIF.tweaks.endDate = WHATIF.tweaks.startDate;
       }
-      saveWhatIf(WHATIF);
+      saveWhatIfState(WHATIF);
       renderWhatIf();
     });
 
@@ -4457,7 +4122,7 @@ const shim = {
       if (isValidYMDString(WHATIF.tweaks.startDate) && compareYMD(WHATIF.tweaks.startDate, WHATIF.tweaks.endDate) > 0) {
         WHATIF.tweaks.startDate = WHATIF.tweaks.endDate;
       }
-      saveWhatIf(WHATIF);
+      saveWhatIfState(WHATIF);
       renderWhatIf();
     });
 
@@ -4491,7 +4156,7 @@ const shim = {
       const global = getGlobalTweaks();
       global.pct = value;
       global.lastEdited = "pct";
-      saveWhatIf(WHATIF);
+      saveWhatIfState(WHATIF);
       scheduleWhatIfRender();
     };
 
@@ -4506,7 +4171,7 @@ const shim = {
       const value = clampCurrency(e.target.value, global.delta);
       global.delta = value;
       global.lastEdited = "delta";
-      saveWhatIf(WHATIF);
+      saveWhatIfState(WHATIF);
       scheduleWhatIfRender();
     });
 
@@ -4522,7 +4187,7 @@ const shim = {
       global.pct = pct;
       global.delta = round2(value - 100 * (1 + pct));
       global.lastEdited = "effective";
-      saveWhatIf(WHATIF);
+      saveWhatIfState(WHATIF);
       scheduleWhatIfRender();
     });
 
@@ -4583,7 +4248,7 @@ const shim = {
         changed = true;
       }
       if (changed) {
-        saveWhatIf(WHATIF);
+        saveWhatIfState(WHATIF);
         scheduleWhatIfRender();
       }
     };
@@ -4606,7 +4271,7 @@ const shim = {
         entry.effective = null;
         entry.weeklyTarget = null;
         entry.lastEdited = "pct";
-        saveWhatIf(WHATIF);
+        saveWhatIfState(WHATIF);
         scheduleWhatIfRender();
       } else if (role === "toggleLock") {
         if (!stream) return;
@@ -4621,7 +4286,7 @@ const shim = {
           entry.weeklyTarget = null;
           entry.lastEdited = "effective";
         }
-        saveWhatIf(WHATIF);
+        saveWhatIfState(WHATIF);
         scheduleWhatIfRender();
       }
     };
@@ -4636,7 +4301,7 @@ const shim = {
         sale.entries.push(entry);
         saleUIState.set(entry.id, { isEditing: true, draft: createSaleDraftFromEntry(entry) });
       }
-      saveWhatIf(WHATIF);
+      saveWhatIfState(WHATIF);
       renderWhatIf();
     });
 
@@ -4646,7 +4311,7 @@ const shim = {
       const entry = createSaleEntry(getSaleDefaultStart());
       sale.entries.push(entry);
       saleUIState.set(entry.id, { isEditing: true, draft: createSaleDraftFromEntry(entry) });
-      saveWhatIf(WHATIF);
+      saveWhatIfState(WHATIF);
       renderWhatIf();
     });
 
@@ -4723,7 +4388,7 @@ const shim = {
       if (role === "removeSale") {
         sale.entries = sale.entries.filter((entry) => entry && entry.id !== id);
         saleUIState.delete(id);
-        saveWhatIf(WHATIF);
+        saveWhatIfState(WHATIF);
         renderWhatIf();
       } else if (role === "editSale") {
         const entry = sale.entries.find((item) => item && item.id === id);
@@ -4756,7 +4421,7 @@ const shim = {
         entry.lastEdited = draft.lastEdited === "topup" ? "topup" : "pct";
         state.isEditing = false;
         state.draft = createSaleDraftFromEntry(entry);
-        saveWhatIf(WHATIF);
+        saveWhatIfState(WHATIF);
         renderWhatIf();
       }
     });
@@ -4978,7 +4643,7 @@ const shim = {
           console.warn("Import used compatibility mode", strictErr);
         }
         STATE = nextState;
-        save(STATE);
+        saveState(STATE);
         dlg.close();
         renderSettingsForm();
         recalcAndRender();
@@ -5003,7 +4668,7 @@ const shim = {
 
     // Ensure defaults if missing
     if (!STATE.settings.endDate) STATE.settings.endDate = defaultEnd;
-    save(STATE);
+    saveState(STATE);
 
     recalcAndRender();
   };
