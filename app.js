@@ -1,3 +1,58 @@
+import {
+  todayYMD,
+  toYMD,
+  fromYMD,
+  addDays,
+  rollWeekend,
+  parseExcelOrISODate,
+  compareYMD,
+  monthsBetween,
+  getDOWLabel,
+  normalizeNth,
+  describeNth,
+  toWeekdayArray,
+  firstWeekday,
+  formatWeekdayList,
+  readWeekdaySelections,
+} from "./utils/dates.js";
+import {
+  fmtMoney,
+  fmtDate,
+  escapeHtml,
+  round2,
+  fmtCount,
+  parseCurrency,
+  clamp,
+  compareText,
+  describeNameAndCategory,
+  uid,
+  deepClone,
+} from "./utils/formatting.js";
+import {
+  DEFAULT_CONFIG,
+  defaultState,
+  defaultOneOffSortState,
+  sanitizeOneOffSortState,
+  isValidYMDString,
+  createSaleEntry,
+  normalizeState,
+  loadState,
+  saveState,
+  clampPercent,
+  clampCurrency,
+  computeEffectiveAmount,
+  resolvePercentFromEffective,
+  cloneStateForSandbox,
+  getStreamById,
+  getStreamBaseAmount,
+  sanitizeWhatIfState,
+  loadWhatIf,
+  saveWhatIf,
+  STORAGE_KEYS,
+} from "./state/management.js";
+import { createDashboardRenderer } from "./components/dashboard.js";
+import { createWhatIfRenderer } from "./components/whatif.js";
+
 /* 2025 Cash Flow — all client-side, localStorage powered */
 
 (() => {
@@ -6,186 +61,6 @@
   // ---------- Utilities ----------
   const $ = (sel, ctx = document) => ctx.querySelector(sel);
   const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
-  const fmtMoney = (n) =>
-    (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const fmtDate = (ymd) => {
-    if (!ymd) return "";
-    try {
-      const d = fromYMD(ymd);
-      if (!(d instanceof Date) || Number.isNaN(d.getTime())) return ymd;
-      return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    } catch (err) {
-      return ymd;
-    }
-  };
-  const pad = (n) => String(n).padStart(2, "0");
-  const toYMD = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const fromYMD = (s) => {
-    const [y, m, d] = s.split("-").map(Number);
-    return new Date(y, m - 1, d);
-  };
-  const escapeHtml = (value) =>
-    String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  const round2 = (value) => {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return 0;
-    return Math.round(num * 100) / 100;
-  };
-  const fmtCount = (value) => {
-    const num = Number(value || 0);
-    return Number.isFinite(num) ? num.toLocaleString() : "0";
-  };
-  const deepClone = (value) => {
-    try {
-      return JSON.parse(JSON.stringify(value));
-    } catch {
-      return null;
-    }
-  };
-  const addDays = (ymd, days = 0) => {
-    if (!ymd || typeof ymd !== "string") return ymd;
-    const delta = Number(days || 0);
-    if (!Number.isFinite(delta)) return ymd;
-    const d = fromYMD(ymd);
-    if (Number.isNaN(d.getTime())) return ymd;
-    d.setDate(d.getDate() + delta);
-    return toYMD(d);
-  };
-  const rollWeekend = (ymd, policy = "forward") => {
-    if (!ymd || typeof ymd !== "string") return ymd;
-    const d = fromYMD(ymd);
-    if (Number.isNaN(d.getTime())) return ymd;
-    const moveForward = () => {
-      do {
-        d.setDate(d.getDate() + 1);
-      } while (d.getDay() === 0 || d.getDay() === 6);
-    };
-    const moveBack = () => {
-      do {
-        d.setDate(d.getDate() - 1);
-      } while (d.getDay() === 0 || d.getDay() === 6);
-    };
-    if (d.getDay() === 6 || d.getDay() === 0) {
-      if (policy === "back") moveBack();
-      else if (policy === "forward") moveForward();
-      // policy === "none" keeps original weekend date
-    }
-    return toYMD(d);
-  };
-  const parseCurrency = (value) => {
-    if (value === null || value === undefined || value === "") return NaN;
-    if (typeof value === "number") {
-      return Number.isFinite(value) ? value : NaN;
-    }
-    let str = String(value).trim();
-    if (!str) return NaN;
-    let negative = false;
-    if (/^\((.*)\)$/.test(str)) {
-      negative = true;
-      str = str.slice(1, -1);
-    }
-    str = str.replace(/[−–—]/g, "-");
-    if (str.endsWith("-")) {
-      negative = true;
-      str = str.slice(0, -1);
-    }
-    if (str.startsWith("-")) {
-      negative = true;
-      str = str.slice(1);
-    }
-    str = str.replace(/[^0-9.,]/g, "");
-    if (!str) return NaN;
-    const hasComma = str.includes(",");
-    const hasDot = str.includes(".");
-    if (hasComma && hasDot) {
-      if (str.lastIndexOf(",") > str.lastIndexOf(".")) {
-        str = str.replace(/\./g, "");
-        str = str.replace(/,/g, ".");
-      } else {
-        str = str.replace(/,/g, "");
-      }
-    } else if (hasComma) {
-      const parts = str.split(",");
-      if (parts.length > 1 && parts[parts.length - 1].length === 2) {
-        str = parts.slice(0, -1).join("") + "." + parts[parts.length - 1];
-      } else {
-        str = parts.join("");
-      }
-    } else {
-      str = str.replace(/,/g, "");
-    }
-    const num = Number(str);
-    if (!Number.isFinite(num)) return NaN;
-    return negative ? -num : num;
-  };
-  const parseExcelOrISODate = (value) => {
-    if (value === null || value === undefined || value === "") return null;
-    if (value instanceof Date) {
-      if (Number.isNaN(value.getTime())) return null;
-      return toYMD(value);
-    }
-    if (typeof value === "number" && Number.isFinite(value)) {
-      const serial = Number(value);
-      const whole = Math.floor(serial);
-      const frac = serial - whole;
-      let days = whole;
-      if (days > 59) days -= 1; // Excel leap year bug
-      const epoch = Date.UTC(1899, 11, 31);
-      const ms = epoch + days * 86400000 + Math.round(frac * 86400000);
-      const dt = new Date(ms);
-      if (Number.isNaN(dt.getTime())) return null;
-      return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
-    }
-    const str = String(value).trim();
-    if (!str) return null;
-    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(str)) {
-      const [y, m, d] = str.split("-").map(Number);
-      const dt = new Date(y, m - 1, d);
-      if (Number.isNaN(dt.getTime())) return null;
-      return toYMD(dt);
-    }
-    const [datePart] = str.split(/\s+/);
-    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(datePart)) {
-      const parts = datePart.split(/[\/\-]/).map((seg) => seg.trim());
-      if (parts.length === 3) {
-        const [m, d, yRaw] = parts;
-        let year = Number(yRaw);
-        const month = Number(m);
-        const day = Number(d);
-        if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
-        if (year < 100) year += year >= 70 ? 1900 : 2000;
-        const dt = new Date(year, month - 1, day);
-        if (Number.isNaN(dt.getTime())) return null;
-        return toYMD(dt);
-      }
-    }
-    const parsed = new Date(str);
-    if (Number.isNaN(parsed.getTime())) return null;
-    return toYMD(parsed);
-  };
-  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-  const uid = () => Math.random().toString(36).slice(2, 9);
-  const compareYMD = (a, b) => String(a || "").localeCompare(String(b || ""));
-  const compareText = (a, b) =>
-    String(a ?? "").localeCompare(String(b ?? ""), undefined, { sensitivity: "base" }) ||
-    String(a ?? "").localeCompare(String(b ?? ""));
-  const describeNameAndCategory = (entry, fallback) => {
-    if (!entry || typeof entry !== "object") return fallback;
-    const parts = [];
-    if (entry.name) parts.push(entry.name);
-    if (entry.category) parts.push(entry.category);
-    if (!parts.length && entry.note) parts.push(entry.note);
-    return parts.join(" – ") || fallback;
-  };
-  const monthsBetween = (prev, next) => {
-    if (!prev || !next) return 0;
-    const months = (next.getFullYear() - prev.getFullYear()) * 12 + (next.getMonth() - prev.getMonth());
-    return Math.max(0, months);
-  };
 
   const getBaseAmountForDate = (entry, date) => {
     const base = Number(entry.amount || 0);
@@ -324,74 +199,10 @@ const firstWeekday = (value, fallback = 0) => {
   return clamp(Number(fallback) || 0, 0, 6);
 };
 
-  const formatWeekdayList = (value) => {
-    const days = toWeekdayArray(value);
-    if (!days.length) return "";
-    return days.map((dow) => getDOWLabel(dow)).join(", ");
-  };
-
-  const readWeekdaySelections = (selectEl) => {
-    if (!selectEl) return [];
-    const values = Array.from(selectEl.selectedOptions || []).map((opt) => opt.value);
-    return toWeekdayArray(values);
-  };
-
-  const todayYMD = (() => {
-    const d = new Date();
-    return toYMD(d);
-  })();
-
   // ---------- Storage ----------
-  const STORAGE_KEY = "cashflow2025_v1";
-  const WHATIF_STORAGE_KEY = "cashflow2025_whatif_v1";
-  const AR_PREFS_STORAGE_KEY = "cashflow2025_arPrefs_v1";
-  const defaultEnd = "2025-12-31";
 
   const ONE_OFF_SORT_KEYS = ["date", "schedule", "type", "name", "category", "next"];
-  const defaultOneOffSortState = () => ({ key: "date", direction: "asc" });
-
-  const sanitizeOneOffSortState = (value) => {
-    const defaults = defaultOneOffSortState();
-    if (!value || typeof value !== "object") return defaults;
-    const key = ONE_OFF_SORT_KEYS.includes(value.key) ? value.key : defaults.key;
-    const direction = value.direction === "desc" ? "desc" : defaults.direction;
-    return { key, direction };
-  };
-
-  const defaultState = () => ({
-    settings: {
-      startDate: todayYMD,
-      endDate: defaultEnd,
-      startingBalance: 0,
-    },
-    adjustments: [],
-    oneOffs: [],
-    incomeStreams: [],
-    ui: {
-      oneOffSort: defaultOneOffSortState(),
-    },
-  });
-
-  const isValidYMDString = (value) => {
-    if (typeof value !== "string" || !value) return false;
-    const parsed = fromYMD(value);
-    if (Number.isNaN(parsed.getTime())) return false;
-    return toYMD(parsed) === value;
-  };
-  const createSaleEntry = (startDate) => {
-    const safeStart = isValidYMDString(startDate) ? startDate : todayYMD;
-    return {
-      id: uid(),
-      name: "",
-      pct: 0,
-      topup: 0,
-      startDate: safeStart,
-      endDate: safeStart,
-      businessDaysOnly: true,
-      lastEdited: "pct",
-    };
-  };
-
+  const defaultEnd = DEFAULT_CONFIG.END_DATE;
   const saleUIState = new Map();
 
   const createSaleDraftFromEntry = (entry) => ({
@@ -414,445 +225,6 @@ const firstWeekday = (value, fallback = 0) => {
       state.draft = createSaleDraftFromEntry(entry);
     }
     return state;
-  };
-
-  const normalizeState = (raw, { strict = false } = {}) => {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-      throw new Error("Invalid state payload");
-    }
-
-    const base = defaultState();
-    const state = { ...base, ...raw };
-
-    const rawSettings = raw.settings;
-    if (rawSettings && typeof rawSettings === "object" && !Array.isArray(rawSettings)) {
-      state.settings = { ...base.settings, ...rawSettings };
-    } else {
-      if (strict) throw new Error("Invalid settings data");
-      state.settings = { ...base.settings };
-    }
-
-    if (raw.ui && typeof raw.ui === "object" && !Array.isArray(raw.ui)) {
-      state.ui = { ...base.ui, ...raw.ui };
-      state.ui.oneOffSort = sanitizeOneOffSortState(raw.ui.oneOffSort);
-    } else {
-      if (strict && raw.ui !== undefined) throw new Error("Invalid ui data");
-      state.ui = { ...base.ui };
-    }
-
-    const ensureArray = (key) => {
-      const value = raw[key] ?? state[key];
-      if (value === undefined) {
-        state[key] = [];
-        return;
-      }
-      if (!Array.isArray(value)) {
-        if (strict) throw new Error(`Invalid ${key}; expected an array`);
-        state[key] = [];
-        return;
-      }
-      state[key] = value;
-    };
-
-    ensureArray("adjustments");
-    ensureArray("oneOffs");
-    ensureArray("incomeStreams");
-
-    const sanitizeSteps = (value) => {
-      if (!Array.isArray(value)) return [];
-      return value
-        .map((step) => {
-          if (!step || typeof step !== "object" || Array.isArray(step)) return null;
-          const effectiveFrom =
-            typeof step.effectiveFrom === "string" && isValidYMDString(step.effectiveFrom)
-              ? step.effectiveFrom
-              : null;
-          const amount = Number(step.amount || 0);
-          if (!effectiveFrom || !Number.isFinite(amount)) return null;
-          return { effectiveFrom, amount: Math.abs(amount) };
-        })
-        .filter((step) => step !== null)
-        .sort((a, b) => compareYMD(a.effectiveFrom, b.effectiveFrom));
-    };
-
-    const sanitizeOneOff = (entry) => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-        if (strict) throw new Error("Invalid one-off record");
-        return null;
-      }
-
-      const amount = Number(entry.amount || 0);
-      if (!Number.isFinite(amount)) {
-        if (strict) throw new Error("Invalid one-off amount");
-        return null;
-      }
-
-      const type = entry.type === "income" ? "income" : "expense";
-      const id = typeof entry.id === "string" ? entry.id : uid();
-      const result = {
-        id,
-        type,
-        name: typeof entry.name === "string" ? entry.name : "",
-        category: typeof entry.category === "string" ? entry.category : "",
-        amount: Math.abs(amount),
-        recurring: Boolean(entry.recurring),
-      };
-
-      if (entry.note !== undefined) result.note = entry.note;
-      result.steps = sanitizeSteps(entry.steps);
-      const escalator = Number(entry.escalatorPct || 0);
-      result.escalatorPct = Number.isFinite(escalator) ? escalator : 0;
-
-      if (result.recurring) {
-        const frequency = typeof entry.frequency === "string" ? entry.frequency : null;
-        const startDate = typeof entry.startDate === "string" ? entry.startDate : null;
-        const endDate = typeof entry.endDate === "string" ? entry.endDate : null;
-        const datesValid =
-          frequency && startDate && endDate && isValidYMDString(startDate) && isValidYMDString(endDate);
-        if (!datesValid) {
-          if (strict) throw new Error("Invalid recurring one-off metadata");
-          return null;
-        }
-        result.frequency = frequency;
-        result.startDate = startDate;
-        result.endDate = endDate;
-        if (compareYMD(result.startDate, result.endDate) > 0) {
-          if (strict) throw new Error("Invalid recurring one-off range");
-          result.endDate = result.startDate;
-        }
-        result.skipWeekends = Boolean(entry.skipWeekends);
-
-        if (entry.dayOfWeek !== undefined) {
-          result.dayOfWeek = toWeekdayArray(entry.dayOfWeek);
-        }
-        if (entry.dayOfMonth !== undefined) {
-          result.dayOfMonth = clamp(Number(entry.dayOfMonth || 1), 1, 31);
-        }
-
-        if (frequency === "monthly") {
-          const monthlyMode = entry.monthlyMode === "nth" ? "nth" : "day";
-          if (monthlyMode === "nth") {
-            result.monthlyMode = "nth";
-            result.nthWeek = normalizeNth(entry.nthWeek);
-            const nthWeekdaySource =
-              entry.nthWeekday !== undefined
-                ? entry.nthWeekday
-                : entry.dayOfWeek !== undefined
-                ? entry.dayOfWeek
-                : result.dayOfWeek ?? 0;
-            result.nthWeekday = firstWeekday(nthWeekdaySource, 0);
-          } else {
-            result.monthlyMode = "day";
-            const domSource =
-              entry.dayOfMonth !== undefined ? entry.dayOfMonth : result.dayOfMonth ?? 1;
-            result.dayOfMonth = clamp(Number(domSource || 1), 1, 31);
-          }
-        } else {
-          result.monthlyMode = "day";
-        }
-        if (frequency === "weekly" || frequency === "biweekly") {
-          result.dayOfWeek = toWeekdayArray(result.dayOfWeek);
-        }
-        if (result.monthlyMode !== "nth") {
-          delete result.nthWeek;
-          delete result.nthWeekday;
-        }
-        if (typeof entry.onDate === "string") result.onDate = entry.onDate;
-        if (typeof entry.date === "string") result.date = entry.date;
-        else result.date = result.startDate;
-      } else {
-        const date = typeof entry.date === "string" ? entry.date : null;
-        if (!date) {
-          if (strict) throw new Error("Invalid one-off date");
-          return null;
-        }
-        result.date = date;
-        result.steps = [];
-        result.escalatorPct = 0;
-      }
-
-      return result;
-    };
-
-    const sanitizeList = (list) =>
-      list
-        .map((item) => sanitizeOneOff(item))
-        .filter((item) => item !== null);
-
-    state.oneOffs = sanitizeList(state.oneOffs);
-
-    const sanitizeStream = (entry) => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-        if (strict) throw new Error("Invalid income stream record");
-        return null;
-      }
-
-      const amount = Number(entry.amount || 0);
-      if (!Number.isFinite(amount)) {
-        if (strict) throw new Error("Invalid income stream amount");
-        return null;
-      }
-
-      const frequency = typeof entry.frequency === "string" ? entry.frequency : "once";
-      const startDate = typeof entry.startDate === "string" ? entry.startDate : typeof entry.onDate === "string" ? entry.onDate : null;
-      const endDate = typeof entry.endDate === "string" ? entry.endDate : typeof entry.onDate === "string" ? entry.onDate : null;
-      const datesValid = startDate && endDate && isValidYMDString(startDate) && isValidYMDString(endDate);
-      if (!datesValid) {
-        if (strict) throw new Error("Invalid income stream date range");
-        return null;
-      }
-
-      const startVsEnd = compareYMD(startDate, endDate);
-      const normalizedStart = startVsEnd <= 0 ? startDate : endDate;
-      const normalizedEnd = startVsEnd <= 0 ? endDate : startDate;
-
-      const id = typeof entry.id === "string" ? entry.id : uid();
-      const stream = {
-        id,
-        name: typeof entry.name === "string" ? entry.name : "",
-        category: typeof entry.category === "string" ? entry.category : "",
-        amount: Math.abs(amount),
-        frequency,
-        startDate: normalizedStart,
-        endDate: normalizedEnd,
-        onDate: typeof entry.onDate === "string" ? entry.onDate : null,
-        skipWeekends: Boolean(entry.skipWeekends),
-        dayOfWeek: clamp(Number(entry.dayOfWeek ?? 0), 0, 6),
-        dayOfMonth: clamp(Number(entry.dayOfMonth ?? 1), 1, 31),
-        steps: sanitizeSteps(entry.steps),
-        escalatorPct: Number.isFinite(Number(entry.escalatorPct || 0)) ? Number(entry.escalatorPct || 0) : 0,
-      };
-
-      if (frequency === "once") {
-        stream.onDate = typeof entry.onDate === "string" ? entry.onDate : stream.startDate;
-      }
-      if (frequency === "daily") {
-        stream.skipWeekends = Boolean(entry.skipWeekends);
-      }
-      if (frequency === "weekly" || frequency === "biweekly") {
-        stream.dayOfWeek = clamp(Number(entry.dayOfWeek ?? 0), 0, 6);
-      }
-      if (frequency === "monthly") {
-        stream.dayOfMonth = clamp(Number(entry.dayOfMonth ?? 1), 1, 31);
-      }
-
-      return stream;
-    };
-
-    state.incomeStreams = state.incomeStreams
-      .map((entry) => sanitizeStream(entry))
-      .filter((entry) => entry !== null);
-
-
-    const legacyExpenses = Array.isArray(raw.expenseStreams) ? raw.expenseStreams : [];
-    if (legacyExpenses.length) {
-      const fallbackStart = state.settings.startDate;
-      const fallbackEnd = state.settings.endDate;
-      const mapped = legacyExpenses
-        .map((stream) => {
-          if (!stream || typeof stream !== "object" || Array.isArray(stream)) {
-            if (strict) throw new Error("Invalid legacy expense stream");
-            return null;
-          }
-          const candidate = {
-            ...stream,
-            id: typeof stream.id === "string" ? stream.id : uid(),
-            type: "expense",
-            recurring: true,
-            date: typeof stream.startDate === "string" ? stream.startDate : stream.onDate,
-            startDate:
-              typeof stream.startDate === "string" ? stream.startDate : fallbackStart,
-            endDate: typeof stream.endDate === "string" ? stream.endDate : fallbackEnd,
-          };
-          return sanitizeOneOff(candidate);
-        })
-        .filter((item) => item !== null);
-      if (mapped.length) {
-        state.oneOffs = [...state.oneOffs, ...mapped];
-      }
-    }
-
-    delete state.expenseStreams;
-
-    if (typeof state.settings.startDate !== "string") {
-      if (strict) throw new Error("Invalid settings.startDate");
-      state.settings.startDate = base.settings.startDate;
-    }
-    if (typeof state.settings.endDate !== "string") {
-      if (strict) throw new Error("Invalid settings.endDate");
-      state.settings.endDate = base.settings.endDate;
-    }
-    if (!isValidYMDString(state.settings.startDate)) {
-      if (strict) throw new Error("Invalid settings.startDate format");
-      state.settings.startDate = base.settings.startDate;
-    }
-    if (!isValidYMDString(state.settings.endDate)) {
-      if (strict) throw new Error("Invalid settings.endDate format");
-      state.settings.endDate = base.settings.endDate;
-    }
-    if (compareYMD(state.settings.startDate, state.settings.endDate) > 0) {
-      if (strict) throw new Error("Invalid settings date range");
-      state.settings.endDate = state.settings.startDate;
-    }
-    const sb = Number(state.settings.startingBalance);
-    if (Number.isFinite(sb)) {
-      state.settings.startingBalance = sb;
-    } else {
-      if (strict) throw new Error("Invalid settings.startingBalance");
-      state.settings.startingBalance = base.settings.startingBalance;
-    }
-
-    return state;
-  };
-
-  const load = () => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return defaultState();
-      const data = JSON.parse(raw);
-      return normalizeState(data);
-    } catch {
-      return defaultState();
-    }
-  };
-
-  const save = (state) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  };
-
-  const clampPercent = (value, { min = -1, max = 2, fallback = 0 } = {}) => {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return fallback;
-    return Math.max(min, Math.min(max, Math.round(num * 1000) / 1000));
-  };
-
-  const clampCurrency = (value, fallback = 0) => {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return fallback;
-    return round2(num);
-  };
-
-  const computeEffectiveAmount = (base, pct, delta) => {
-    const b = Number(base || 0);
-    const p = Number(pct || 0);
-    const d = Number(delta || 0);
-    if (!Number.isFinite(b) || !Number.isFinite(p) || !Number.isFinite(d)) return 0;
-    return round2(b * (1 + p) + d);
-  };
-
-  const resolvePercentFromEffective = (base, effective, delta = 0) => {
-    const b = Number(base || 0);
-    if (!Number.isFinite(b) || b === 0) return 0;
-    const e = Number(effective || 0);
-    if (!Number.isFinite(e)) return 0;
-    const d = Number(delta || 0);
-    if (!Number.isFinite(d)) return 0;
-    return clampPercent((e - d) / b - 1);
-  };
-
-  const cloneStateForSandbox = (src) => {
-    try {
-      return normalizeState(deepClone(src) ?? {});
-    } catch {
-      return normalizeState(defaultState());
-    }
-  };
-
-  const getStreamById = (state, id) => {
-    if (!state || !Array.isArray(state.incomeStreams)) return null;
-    return state.incomeStreams.find((stream) => stream && typeof stream.id === "string" && stream.id === id) || null;
-  };
-
-  const getStreamBaseAmount = (stream) => {
-    if (!stream || typeof stream !== "object") return 0;
-    return Math.abs(Number(stream.amount || 0)) || 0;
-  };
-
-  const sanitizeWhatIfState = (raw, fallbackBase = defaultState()) => {
-    const fallback = cloneStateForSandbox(fallbackBase);
-    const baseRaw = raw && typeof raw === "object" ? raw.base : null;
-    const base = baseRaw ? cloneStateForSandbox(baseRaw) : fallback;
-
-    if (!Array.isArray(base.incomeStreams)) base.incomeStreams = [];
-
-    const baseSettings = base.settings || fallback.settings || defaultState().settings;
-    const tweaksRaw = raw && typeof raw === "object" && typeof raw.tweaks === "object" ? raw.tweaks : {};
-
-    const globalRaw = tweaksRaw.global && typeof tweaksRaw.global === "object" ? tweaksRaw.global : {};
-    const global = {
-      pct: clampPercent(globalRaw.pct, { min: -1, max: 2, fallback: 0 }),
-      delta: clampCurrency(globalRaw.delta, 0),
-      lastEdited: ["pct", "delta", "effective"].includes(globalRaw.lastEdited) ? globalRaw.lastEdited : "pct",
-    };
-
-    const streamsRaw = tweaksRaw.streams && typeof tweaksRaw.streams === "object" ? tweaksRaw.streams : {};
-    const streams = {};
-    for (const stream of base.incomeStreams) {
-      if (!stream || typeof stream !== "object") continue;
-      if (typeof stream.id !== "string") stream.id = uid();
-      const streamId = stream.id;
-      const rawEntry = streamsRaw && typeof streamsRaw[streamId] === "object" ? streamsRaw[streamId] : {};
-      const pct = clampPercent(rawEntry.pct, { min: -1, max: 2, fallback: 0 });
-      const delta = clampCurrency(rawEntry.delta, 0);
-      const effective = Number.isFinite(Number(rawEntry.effective)) ? round2(Number(rawEntry.effective)) : null;
-      const weeklyTarget = Number.isFinite(Number(rawEntry.weeklyTarget)) ? round2(Number(rawEntry.weeklyTarget)) : null;
-      const lastEdited = ["pct", "delta", "effective", "weekly"].includes(rawEntry.lastEdited)
-        ? rawEntry.lastEdited
-        : "pct";
-      streams[streamId] = { pct, delta, effective, weeklyTarget, lastEdited };
-    }
-
-    const startDate = isValidYMDString(tweaksRaw.startDate) ? tweaksRaw.startDate : baseSettings.startDate;
-    let endDate = isValidYMDString(tweaksRaw.endDate) ? tweaksRaw.endDate : baseSettings.endDate;
-    if (compareYMD(startDate, endDate) > 0) endDate = startDate;
-
-    const saleRaw = tweaksRaw.sale && typeof tweaksRaw.sale === "object" ? tweaksRaw.sale : {};
-    const legacyStart = isValidYMDString(saleRaw.startDate) ? saleRaw.startDate : startDate;
-    let legacyEnd = isValidYMDString(saleRaw.endDate) ? saleRaw.endDate : legacyStart;
-    if (compareYMD(legacyStart, legacyEnd) > 0) legacyEnd = legacyStart;
-    const saleEntriesRaw = Array.isArray(saleRaw.entries) ? saleRaw.entries : null;
-    const legacyEntryNeeded =
-      !saleEntriesRaw &&
-      (saleRaw.startDate || saleRaw.endDate || saleRaw.pct || saleRaw.topup || saleRaw.businessDaysOnly);
-    const combinedEntries = saleEntriesRaw || (legacyEntryNeeded ? [{ ...saleRaw, startDate: legacyStart, endDate: legacyEnd }] : []);
-    const saleEntries = [];
-    for (const rawEntry of combinedEntries) {
-      if (!rawEntry || typeof rawEntry !== "object") continue;
-      const entry = { ...rawEntry };
-      const entryStart = isValidYMDString(entry.startDate) ? entry.startDate : legacyStart;
-      let entryEnd = isValidYMDString(entry.endDate) ? entry.endDate : entryStart;
-      if (compareYMD(entryStart, entryEnd) > 0) entryEnd = entryStart;
-      const entryPct = clampPercent(entry.pct, { min: -1, max: 5, fallback: 0 });
-      const entryTopup = clampCurrency(entry.topup, 0);
-      const lastEdited = entry.lastEdited === "topup" ? "topup" : "pct";
-      const id = typeof entry.id === "string" ? entry.id : uid();
-      const name = typeof entry.name === "string" ? entry.name.trim().slice(0, 120) : "";
-      saleEntries.push({
-        id,
-        name,
-        pct: entryPct,
-        topup: entryTopup,
-        startDate: entryStart,
-        endDate: entryEnd,
-        businessDaysOnly: Boolean(entry.businessDaysOnly),
-        lastEdited,
-      });
-    }
-    const sale = {
-      enabled: Boolean(saleRaw.enabled),
-      entries: saleEntries,
-    };
-
-    return {
-      base,
-      tweaks: {
-        global,
-        streams,
-        sale,
-        startDate,
-        endDate,
-      },
-    };
   };
 
   const ensureWhatIfStreamTweak = (streamId) => {
@@ -880,23 +252,7 @@ const firstWeekday = (value, fallback = 0) => {
     return computeEffectiveAmount(globalAdjusted, entry.pct, entry.delta);
   };
 
-  const loadWhatIf = (fallbackBase) => {
-    const fallback = fallbackBase || defaultState();
-    try {
-      const raw = localStorage.getItem(WHATIF_STORAGE_KEY);
-      if (!raw) return sanitizeWhatIfState({ base: fallback }, fallback);
-      const data = JSON.parse(raw);
-      return sanitizeWhatIfState(data, fallback);
-    } catch {
-      return sanitizeWhatIfState({ base: fallback }, fallback);
-    }
-  };
-
-  const saveWhatIf = (sandbox) => {
-    localStorage.setItem(WHATIF_STORAGE_KEY, JSON.stringify(sandbox));
-  };
-
-  let STATE = load();
+  let STATE = loadState();
   let WHATIF = loadWhatIf(STATE);
 
 STATE.incomeStreams = (STATE.incomeStreams || []).map((stream) => {
@@ -1357,7 +713,7 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
   };
   const loadARPreferences = () => {
     try {
-      const raw = localStorage.getItem(AR_PREFS_STORAGE_KEY);
+      const raw = localStorage.getItem(STORAGE_KEYS.AR_PREFS);
       if (!raw) {
         return { options: defaultAROptions(), mapping: defaultARMappingOverrides() };
       }
@@ -1383,7 +739,7 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
         },
         mapping: { ...arState.mappingOverrides },
       };
-      localStorage.setItem(AR_PREFS_STORAGE_KEY, JSON.stringify(payload));
+      localStorage.setItem(STORAGE_KEYS.AR_PREFS, JSON.stringify(payload));
     } catch {
       // ignore storage failures
     }
@@ -2291,7 +1647,7 @@ STATE.oneOffs = (STATE.oneOffs || []).map((tx) => {
     }
 
     if (changed) {
-      save(STATE);
+      saveState(STATE);
       recalcAndRender();
     }
 
@@ -2848,7 +2204,7 @@ const shim = {
       const endDate = $("#endDate").value || defaultEnd;
       const startingBalance = Number($("#startingBalance").value || 0);
       STATE.settings = { startDate, endDate, startingBalance };
-      save(STATE);
+      saveState(STATE);
       recalcAndRender();
     });
   };
@@ -2878,7 +2234,7 @@ const shim = {
       const note = $("#adjNote").value.trim();
       if (!date || isNaN(amount)) return;
       STATE.adjustments.push({ id: uid(), date, amount, note });
-      save(STATE);
+      saveState(STATE);
       $("#adjForm").reset();
       recalcAndRender();
     });
@@ -2888,7 +2244,7 @@ const shim = {
       if (!btn) return;
       const id = btn.getAttribute("data-id");
       STATE.adjustments = STATE.adjustments.filter((a) => a.id !== id);
-      save(STATE);
+      saveState(STATE);
       recalcAndRender();
     });
   };
@@ -2984,7 +2340,7 @@ const shim = {
       sortState.direction = "asc";
       changed = true;
     }
-    if (changed) save(STATE);
+    if (changed) saveState(STATE);
     return changed;
   };
 
@@ -3346,7 +2702,7 @@ const shim = {
 
       const removalSet = new Set(removal);
       STATE.oneOffs = (STATE.oneOffs || []).filter((entry) => !removalSet.has(entry));
-      save(STATE);
+      saveState(STATE);
       recalcAndRender();
       alert(`${fmtCount(removalCount)} duplicate ${removalCount === 1 ? "entry" : "entries"} removed.`);
     });
@@ -3433,7 +2789,7 @@ const shim = {
         STATE.oneOffs.push(entry);
       }
 
-      save(STATE);
+      saveState(STATE);
       resetOneOffForm();
       recalcAndRender();
     });
@@ -3449,7 +2805,7 @@ const shim = {
         if (editingOneOffId === id) {
           resetOneOffForm();
         }
-        save(STATE);
+        saveState(STATE);
         recalcAndRender();
       } else if (act === "editOneOff") {
         startOneOffEdit(id);
@@ -3571,7 +2927,7 @@ const shim = {
       stream.escalatorPct = Number.isFinite(escalatorRaw) ? escalatorRaw : 0;
 
       STATE.incomeStreams.push(stream);
-      save(STATE);
+      saveState(STATE);
       $("#streamForm").reset();
       $("#stFreq").value = "once";
       showFreqBlocks();
@@ -3585,13 +2941,12 @@ const shim = {
       if (!btn) return;
       const id = btn.getAttribute("data-id");
       STATE.incomeStreams = STATE.incomeStreams.filter((s) => s.id !== id);
-      save(STATE);
+      saveState(STATE);
       recalcAndRender();
     });
   };
 
   // Chart + upcoming table + KPIs
-  let balanceChart;
   let whatIfChart;
   let whatIfRenderPending = false;
 
@@ -3662,1351 +3017,48 @@ const shim = {
     return { text: `${diff > 0 ? "+" : "-"}${abs} days`, delta: diff };
   };
 
-  const renderDashboard = () => {
-    const {
-      cal,
-      totalIncome,
-      totalExpenses,
-      endBalance,
-      projectedWeeklyIncome,
-      lowestBalance,
-      lowestBalanceDate,
-      peakBalance,
-      peakBalanceDate,
-      firstNegativeDate,
-      negativeDays,
-    } = computeProjection(STATE);
 
-    // KPIs
-    $("#kpiEndBalance").textContent = fmtMoney(endBalance);
-    $("#kpiIncome").textContent = fmtMoney(totalIncome);
-    $("#kpiExpenses").textContent = fmtMoney(totalExpenses);
-    const weeklyEl = $("#kpiWeeklyIncome");
-    if (weeklyEl) weeklyEl.textContent = fmtMoney(projectedWeeklyIncome);
-    const lowestEl = $("#kpiLowestBalance");
-    if (lowestEl) lowestEl.textContent = fmtMoney(lowestBalance);
-    const lowestDateEl = $("#kpiLowestDate");
-    if (lowestDateEl) lowestDateEl.textContent = lowestBalanceDate ? `on ${fmtDate(lowestBalanceDate)}` : "—";
-    const peakEl = $("#kpiPeakBalance");
-    if (peakEl) peakEl.textContent = fmtMoney(peakBalance);
-    const peakDateEl = $("#kpiPeakDate");
-    if (peakDateEl) peakDateEl.textContent = peakBalanceDate ? `on ${fmtDate(peakBalanceDate)}` : "—";
-    const negDaysEl = $("#kpiNegativeDays");
-    if (negDaysEl) negDaysEl.textContent = String(negativeDays);
-    const firstNegEl = $("#kpiFirstNegative");
-    if (firstNegEl) firstNegEl.textContent = firstNegativeDate ? fmtDate(firstNegativeDate) : "—";
 
-    // Chart data
-    const labels = cal.map((r) => r.date);
-    const data = cal.map((r) => Number(r.running.toFixed(2)));
 
-    const canvasEl = $("#balanceChart");
-    if (!canvasEl) return;
+  const { renderDashboard } = createDashboardRenderer({
+    getState: () => STATE,
+    computeProjection,
+    fmtMoney,
+    fmtDate,
+    query: $,
+    Chart: window.Chart || Chart,
+  });
+
+  const { renderWhatIf } = createWhatIfRenderer({
+    getState: () => STATE,
+    getSandbox: () => WHATIF,
+    setSandbox: (next) => { WHATIF = next; },
+    sanitizeWhatIfState,
+    saveWhatIf,
+    cloneStateForSandbox,
+    defaultState,
+    isValidYMDString,
+    compareYMD,
+    clampPercent,
+    clampCurrency,
+    round2,
+    computeProjection,
+    estimateOccurrencesPerWeek,
+    computeEffectiveAmount,
+    fmtMoney,
+    fmtDate,
+    escapeHtml,
+    describeNameAndCategory,
+    formatPercentLabel,
+    formatMoneyDelta,
+    formatNumberDelta,
+    applyDeltaClass,
+    describeFirstNegative,
+    describeFirstNegativeDelta,
+    createSaleEntry,
+    uid,
+    query: $,
+  });
 
-    const existingChart = typeof Chart?.getChart === "function"
-      ? Chart.getChart(canvasEl)
-      : null;
-    if (existingChart) existingChart.destroy();
 
-    if (balanceChart) {
-      balanceChart.destroy();
-      balanceChart = undefined;
-    }
 
-    const ctx = canvasEl.getContext("2d");
-    const lineColors = {
-      above: "#1b5e20",
-      below: "#b71c1c"
-    };
-    const segmentColor = (segCtx) => {
-      const { chart, p0, p1 } = segCtx || {};
-      const y0 = p0?.parsed?.y;
-      const y1 = p1?.parsed?.y;
-      if (!Number.isFinite(y0) || !Number.isFinite(y1)) return lineColors.above;
-      if (y0 >= 0 && y1 >= 0) return lineColors.above;
-      if (y0 <= 0 && y1 <= 0) return lineColors.below;
-
-      const chartCtx = chart?.ctx;
-      if (!chartCtx) return lineColors.above;
-      const gradient = chartCtx.createLinearGradient(p0.x, p0.y, p1.x, p1.y);
-      const total = Math.abs(y0) + Math.abs(y1);
-      const ratio = total === 0 ? 0.5 : Math.abs(y0) / total;
-      const startColor = y0 >= 0 ? lineColors.above : lineColors.below;
-      const endColor = y1 >= 0 ? lineColors.above : lineColors.below;
-      const midColor = y0 >= 0 ? lineColors.below : lineColors.above;
-      gradient.addColorStop(0, startColor);
-      gradient.addColorStop(Math.min(Math.max(ratio, 0), 1), startColor);
-      gradient.addColorStop(Math.min(Math.max(ratio, 0), 1), midColor);
-      gradient.addColorStop(1, endColor);
-      return gradient;
-    };
-    balanceChart = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: "Projected Balance",
-            data,
-            tension: 0.25,
-            borderWidth: 2,
-            pointRadius: 0,
-            borderColor: lineColors.above,
-            segment: {
-              borderColor: segmentColor
-            },
-            fill: {
-              target: { value: 0 },
-              above: "rgba(27, 94, 32, 0.15)",
-              below: "rgba(183, 28, 28, 0.18)"
-            }
-          }
-        ]
-      },
-      options: {
-        interaction: { intersect: false, mode: "index" },
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { ticks: { maxTicksLimit: 10 } },
-          y: {
-            beginAtZero: false,
-            grid: {
-              color: (ctx) => {
-                const value = ctx.tick && typeof ctx.tick.value === "number" ? ctx.tick.value : null;
-                return value === 0 ? "#0f172a" : "rgba(148, 163, 184, 0.2)";
-              },
-              lineWidth: (ctx) => {
-                const value = ctx.tick && typeof ctx.tick.value === "number" ? ctx.tick.value : null;
-                return value === 0 ? 2 : 1;
-              }
-            }
-          }
-        }
-      }
-    });
-
-    // Upcoming 14 days
-    const tbody = $("#upcomingTable tbody");
-    tbody.innerHTML = "";
-    const next14 = cal.slice(0, 14);
-    for (const r of next14) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${r.date}</td>
-        <td class="num">${fmtMoney(r.income)}</td>
-        <td class="num">${fmtMoney(r.expenses)}</td>
-        <td class="num">${fmtMoney(r.net)}</td>
-        <td class="num">${fmtMoney(r.running)}</td>
-      `;
-      tbody.appendChild(tr);
-    }
-  };
-
-  const renderWhatIf = () => {
-    const panel = $("#whatif");
-    if (!panel) return;
-
-    const prevKeys =
-      WHATIF?.tweaks?.streams && typeof WHATIF.tweaks.streams === "object"
-        ? Object.keys(WHATIF.tweaks.streams)
-        : [];
-    WHATIF = sanitizeWhatIfState(WHATIF, STATE);
-    const nextKeys =
-      WHATIF?.tweaks?.streams && typeof WHATIF.tweaks.streams === "object"
-        ? Object.keys(WHATIF.tweaks.streams)
-        : [];
-    if (nextKeys.length !== prevKeys.length) {
-      saveWhatIf(WHATIF);
-    }
-
-    const tweaks = WHATIF.tweaks || {};
-    const baseState = cloneStateForSandbox(WHATIF.base);
-    const baseSettings = baseState.settings || defaultState().settings;
-    const startDate = isValidYMDString(tweaks.startDate) ? tweaks.startDate : baseSettings.startDate;
-    let endDate = isValidYMDString(tweaks.endDate) ? tweaks.endDate : baseSettings.endDate;
-    if (compareYMD(startDate, endDate) > 0) endDate = startDate;
-    baseState.settings = { ...baseSettings, startDate, endDate };
-
-    const globalTweaks = tweaks.global || (tweaks.global = { pct: 0, delta: 0, lastEdited: "pct" });
-    globalTweaks.pct = clampPercent(globalTweaks.pct, { min: -1, max: 2, fallback: 0 });
-    globalTweaks.delta = clampCurrency(globalTweaks.delta, 0);
-    if (!["pct", "delta", "effective"].includes(globalTweaks.lastEdited)) {
-      globalTweaks.lastEdited = "pct";
-    }
-
-    const streamTweaks = tweaks.streams || (tweaks.streams = {});
-    const saleTweaks = tweaks.sale || (tweaks.sale = { enabled: false, entries: [] });
-    saleTweaks.enabled = Boolean(saleTweaks.enabled);
-    if (!Array.isArray(saleTweaks.entries)) {
-      saleTweaks.entries = [];
-      mutated = true;
-    }
-    let saleMutated = false;
-    const validSaleEntries = [];
-    for (const entry of saleTweaks.entries) {
-      if (!entry || typeof entry !== "object") {
-        saleMutated = true;
-        continue;
-      }
-      if (typeof entry.id !== "string") {
-        entry.id = uid();
-        saleMutated = true;
-      }
-      const pct = clampPercent(entry.pct, { min: -1, max: 5, fallback: 0 });
-      if (pct !== entry.pct) {
-        entry.pct = pct;
-        saleMutated = true;
-      }
-      const topup = clampCurrency(entry.topup, 0);
-      if (topup !== entry.topup) {
-        entry.topup = topup;
-        saleMutated = true;
-      }
-      if (!isValidYMDString(entry.startDate)) {
-        entry.startDate = startDate;
-        saleMutated = true;
-      }
-      if (!isValidYMDString(entry.endDate)) {
-        entry.endDate = entry.startDate;
-        saleMutated = true;
-      }
-      if (compareYMD(entry.startDate, entry.endDate) > 0) {
-        entry.endDate = entry.startDate;
-        saleMutated = true;
-      }
-      entry.businessDaysOnly = Boolean(entry.businessDaysOnly);
-      if (entry.lastEdited !== "topup" && entry.lastEdited !== "pct") {
-        entry.lastEdited = "pct";
-        saleMutated = true;
-      }
-      const name = typeof entry.name === "string" ? entry.name.trim().slice(0, 120) : "";
-      if (name !== entry.name) {
-        entry.name = name;
-        saleMutated = true;
-      }
-      validSaleEntries.push(entry);
-    }
-    if (validSaleEntries.length !== saleTweaks.entries.length) {
-      saleMutated = true;
-    }
-    saleTweaks.entries = validSaleEntries;
-    if (saleTweaks.enabled && !saleTweaks.entries.length) {
-      saleTweaks.entries.push(createSaleEntry(startDate));
-      saleMutated = true;
-    }
-    if (saleMutated) mutated = true;
-
-    const actualProjection = computeProjection(STATE);
-
-    const streamInfo = [];
-    const streamMap = new Map();
-    let mutated = false;
-
-    for (const stream of baseState.incomeStreams) {
-      if (!stream || typeof stream !== "object") continue;
-      if (typeof stream.id !== "string") stream.id = uid();
-      const streamId = stream.id;
-      if (!streamTweaks[streamId]) {
-        streamTweaks[streamId] = { pct: 0, delta: 0, effective: null, weeklyTarget: null, lastEdited: "pct" };
-        mutated = true;
-      }
-      const entry = streamTweaks[streamId];
-      entry.pct = clampPercent(entry.pct, { min: -1, max: 2, fallback: 0 });
-      entry.delta = clampCurrency(entry.delta, 0);
-      if (!["pct", "delta", "effective", "weekly"].includes(entry.lastEdited)) {
-        entry.lastEdited = "pct";
-        mutated = true;
-      }
-      if (entry.lastEdited !== "effective" && entry.effective !== null) {
-        entry.effective = null;
-        mutated = true;
-      } else if (entry.lastEdited === "effective" && entry.effective !== null) {
-        entry.effective = round2(entry.effective);
-      }
-      if (entry.lastEdited !== "weekly" && entry.weeklyTarget !== null) {
-        entry.weeklyTarget = null;
-        mutated = true;
-      } else if (entry.lastEdited === "weekly") {
-        if (!Number.isFinite(Number(entry.weeklyTarget))) {
-          entry.weeklyTarget = null;
-          entry.lastEdited = "pct";
-          mutated = true;
-        } else {
-          entry.weeklyTarget = round2(entry.weeklyTarget);
-        }
-      }
-      const baseAmount = Math.abs(Number(stream.amount || 0));
-      const occurrences = estimateOccurrencesPerWeek(stream);
-      if (entry.lastEdited === "weekly" && (!occurrences || occurrences <= 0)) {
-        entry.lastEdited = "pct";
-        entry.weeklyTarget = null;
-        mutated = true;
-      }
-
-      const baseAfterGlobal = computeEffectiveAmount(baseAmount, globalTweaks.pct, globalTweaks.delta);
-      let finalAmount = baseAfterGlobal;
-      if (entry.lastEdited === "weekly" && entry.weeklyTarget !== null && occurrences > 0) {
-        finalAmount = round2(entry.weeklyTarget / occurrences);
-      } else if (entry.lastEdited === "effective" && entry.effective !== null) {
-        finalAmount = round2(entry.effective);
-      } else {
-        finalAmount = computeEffectiveAmount(baseAfterGlobal, entry.pct, entry.delta);
-      }
-
-      streamInfo.push({ id: streamId, stream, baseAmount, baseAfterGlobal, occurrences, entry, finalAmount });
-      streamMap.set(streamId, { entry, occurrences });
-    }
-
-    if (mutated) {
-      saveWhatIf(WHATIF);
-    }
-
-    const startInput = $("#whatifStartDate");
-    if (startInput && document.activeElement !== startInput) startInput.value = startDate || "";
-    const endInput = $("#whatifEndDate");
-    if (endInput && document.activeElement !== endInput) endInput.value = endDate || "";
-
-    const pctInput = $("#whatifGlobalPct");
-    if (pctInput && document.activeElement !== pctInput) pctInput.value = String(Math.round(globalTweaks.pct * 100));
-    const pctSlider = $("#whatifGlobalPctSlider");
-    if (pctSlider && document.activeElement !== pctSlider) pctSlider.value = String(Math.round(globalTweaks.pct * 100));
-    const deltaInput = $("#whatifGlobalDelta");
-    if (deltaInput && document.activeElement !== deltaInput) deltaInput.value = String(round2(globalTweaks.delta));
-    const globalEffective = computeEffectiveAmount(100, globalTweaks.pct, globalTweaks.delta);
-    const effectiveInput = $("#whatifGlobalEffective");
-    if (effectiveInput && document.activeElement !== effectiveInput) effectiveInput.value = globalEffective.toFixed(2);
-    const globalSummary = $("#whatifGlobalSummary");
-    if (globalSummary) {
-      const pctLabel = formatPercentLabel(globalTweaks.pct);
-      globalSummary.textContent = `Applied before per-stream tweaks · ${pctLabel} & ${formatMoneyDelta(globalTweaks.delta)} per occurrence · $100 → ${fmtMoney(globalEffective)}`;
-    }
-
-    const streamContainer = $("#whatifStreams");
-    if (streamContainer) {
-      if (!streamInfo.length) {
-        streamContainer.innerHTML = '<p class="whatif-streams-empty">No recurring income streams in sandbox.</p>';
-      } else {
-        streamContainer.innerHTML = streamInfo
-          .map(({ id, stream, baseAmount, baseAfterGlobal, occurrences, entry, finalAmount }) => {
-            const name = escapeHtml(describeNameAndCategory(stream, "Income Stream"));
-            const pctValue = String(Math.round(entry.pct * 100));
-            const deltaValue = entry.delta.toFixed(2);
-            const effectiveValue = finalAmount.toFixed(2);
-            const weeklyValue = entry.lastEdited === "weekly" && entry.weeklyTarget !== null ? entry.weeklyTarget.toFixed(2) : "";
-            const weeklyDisabled = !occurrences || occurrences <= 0;
-            const weeklyLabel = occurrences && occurrences > 0 ? `${round2(occurrences)} / week` : "n/a";
-            const isLocked = entry.lastEdited === "effective" || entry.lastEdited === "weekly";
-            const lockIcon = isLocked ? "🔒" : "🔗";
-            const lockTitle = isLocked ? "Unlock to use %/$ tweaks" : "Lock current effective amount";
-            const baseLabel = baseAmount === baseAfterGlobal
-              ? `Base: ${fmtMoney(baseAmount)}`
-              : `Base: ${fmtMoney(baseAmount)} · Post-global: ${fmtMoney(baseAfterGlobal)}`;
-            return `
-<div class="whatif-stream" data-stream="${id}">
-  <div class="whatif-stream-head">
-    <div class="whatif-stream-title">
-      <div class="stream-name">${name}</div>
-      <div class="stream-base">${escapeHtml(baseLabel)}</div>
-    </div>
-    <button type="button" class="whatif-lock" data-role="toggleLock" title="${lockTitle}">
-      <span aria-hidden="true">${lockIcon}</span>
-    </button>
-  </div>
-  <div class="whatif-stream-body">
-    <label class="whatif-field whatif-field-pct">
-      <span>% tweak</span>
-      <div class="whatif-percent-inputs">
-        <input type="number" class="whatif-number" data-role="pctInput" min="-100" max="200" step="1" value="${escapeHtml(pctValue)}" />
-        <input type="range" class="whatif-slider" data-role="pctSlider" min="-100" max="200" step="1" value="${escapeHtml(pctValue)}" />
-      </div>
-    </label>
-    <label class="whatif-field">
-      <span>$ tweak</span>
-      <input type="number" class="whatif-number" data-role="deltaInput" step="0.01" value="${escapeHtml(deltaValue)}" />
-    </label>
-    <label class="whatif-field">
-      <span>Effective per occurrence</span>
-      <input type="number" class="whatif-number" data-role="effectiveInput" step="0.01" value="${escapeHtml(effectiveValue)}" />
-    </label>
-    <label class="whatif-field">
-      <span>Weekly target <small>(${weeklyLabel})</small></span>
-      <input type="number" class="whatif-number" data-role="weeklyInput" step="0.01" value="${escapeHtml(weeklyValue)}" ${weeklyDisabled ? "disabled" : ""} placeholder="${weeklyDisabled ? "Not available" : "Target per week"}" />
-    </label>
-    <div class="whatif-stream-actions">
-      <button type="button" class="link" data-role="resetStream">Reset</button>
-    </div>
-  </div>
-</div>`;
-          })
-          .join("");
-      }
-    }
-
-    const saleEnabledEl = $("#whatifSaleEnabled");
-    if (saleEnabledEl) saleEnabledEl.checked = Boolean(saleTweaks.enabled);
-    const saleOptions = $("#whatifSaleOptions");
-    if (saleOptions) saleOptions.hidden = !saleTweaks.enabled;
-    const addSaleBtn = $("#whatifAddSaleBtn");
-    if (addSaleBtn) addSaleBtn.disabled = !saleTweaks.enabled;
-    const saleList = $("#whatifSaleList");
-    if (saleList) {
-      const activeIds = new Set();
-      const fragments = [];
-      for (const [idx, entry] of saleTweaks.entries.entries()) {
-        if (!entry || typeof entry !== "object" || typeof entry.id !== "string") continue;
-        activeIds.add(entry.id);
-        const state = ensureSaleUIState(entry);
-        const draft = state?.draft || createSaleDraftFromEntry(entry);
-        const pctValue = draft.pct ?? String(Math.round(entry.pct * 100));
-        const topupValue = draft.topup ?? entry.topup.toFixed(2);
-        const startValue = draft.startDate ?? entry.startDate ?? "";
-        const endValue = draft.endDate ?? entry.endDate ?? "";
-        const modeSource = state?.isEditing ? draft.lastEdited : entry.lastEdited;
-        const modeText = modeSource === "topup" ? "Mode: $ top-up per day" : "Mode: % uplift";
-        const displayName = (entry.name && entry.name.trim()) || `Sale window ${idx + 1}`;
-        const rangeLabel = entry.startDate
-          ? entry.endDate && entry.endDate !== entry.startDate
-            ? `${fmtDate(entry.startDate)} → ${fmtDate(entry.endDate)}`
-            : fmtDate(entry.startDate)
-          : "";
-        const rangeLabelHtml = rangeLabel
-          ? `<span class="whatif-sale-entry-range">${escapeHtml(rangeLabel)}</span>`
-          : "";
-        if (state?.isEditing) {
-          fragments.push(`
-<div class="whatif-sale-entry is-editing" data-sale-id="${entry.id}">
-  <div class="whatif-sale-entry-head">
-    <div class="whatif-sale-entry-title">
-      <label class="whatif-fields whatif-sale-name">
-        <span>Window name <small>(optional)</small></span>
-        <input type="text" data-role="saleName" placeholder="e.g. Holiday promo" value="${escapeHtml(draft.name || "")}" />
-      </label>
-    </div>
-    <button type="button" class="link" data-role="removeSale">Delete</button>
-  </div>
-  <div class="whatif-sale-grid">
-    <label class="whatif-fields">
-      <span>% uplift</span>
-      <input type="number" data-role="salePct" min="-100" max="500" step="1" value="${escapeHtml(String(pctValue))}" />
-    </label>
-    <label class="whatif-fields">
-      <span>$ top-up per day</span>
-      <input type="number" data-role="saleTopup" step="0.01" value="${escapeHtml(String(topupValue))}" />
-    </label>
-  </div>
-  <div class="whatif-sale-mode-label">${escapeHtml(modeText)}</div>
-  <div class="whatif-inline">
-    <div class="whatif-fields">
-      <label>Start</label>
-      <input type="date" data-role="saleStart" value="${escapeHtml(startValue)}" />
-    </div>
-    <div class="whatif-fields">
-      <label>End</label>
-      <input type="date" data-role="saleEnd" value="${escapeHtml(endValue)}" />
-    </div>
-  </div>
-  <label class="whatif-toggle">
-    <input type="checkbox" data-role="saleBusiness" ${draft.businessDaysOnly ? "checked" : ""} />
-    Only apply on business days
-  </label>
-  <div class="whatif-sale-actions">
-    <button type="button" class="btn" data-role="applySale">Apply</button>
-  </div>
-</div>`);
-        } else {
-          fragments.push(`
-<div class="whatif-sale-entry is-collapsed" data-sale-id="${entry.id}"${rangeLabel ? ` title="${escapeHtml(rangeLabel)}"` : ""}>
-  <div class="whatif-sale-entry-head">
-    <div class="whatif-sale-entry-title"><span class="whatif-sale-entry-name">${escapeHtml(displayName)}</span>${rangeLabelHtml}</div>
-    <div class="whatif-sale-entry-actions">
-      <button type="button" class="link" data-role="editSale">Edit</button>
-      <button type="button" class="link" data-role="removeSale">Delete</button>
-    </div>
-  </div>
-</div>`);
-        }
-      }
-      for (const id of Array.from(saleUIState.keys())) {
-        if (!activeIds.has(id)) saleUIState.delete(id);
-      }
-      if (!fragments.length) {
-        saleList.innerHTML = '<p class="whatif-sale-empty">No sale windows configured.</p>';
-      } else {
-        saleList.innerHTML = fragments.join("");
-      }
-    }
-
-    const whatIfProjection = computeProjection(baseState, {
-      transformStreamAmount: ({ stream, baseAmount }) => {
-        const streamId = typeof stream.id === "string" ? stream.id : String(stream.id || "");
-        const info = streamMap.get(streamId);
-        const occurrenceBase = Math.abs(Number(baseAmount || 0));
-        const baseAfterGlobal = computeEffectiveAmount(occurrenceBase, globalTweaks.pct, globalTweaks.delta);
-        if (!info) {
-          return baseAfterGlobal;
-        }
-        const { entry, occurrences } = info;
-        if (entry.lastEdited === "weekly" && entry.weeklyTarget !== null && occurrences > 0) {
-          return round2(entry.weeklyTarget / occurrences);
-        }
-        if (entry.lastEdited === "effective" && entry.effective !== null) {
-          return round2(entry.effective);
-        }
-        return computeEffectiveAmount(baseAfterGlobal, entry.pct, entry.delta);
-      },
-      sale: {
-        enabled: saleTweaks.enabled,
-        entries: saleTweaks.entries.map((entry) => ({
-          id: entry.id,
-          name: entry.name,
-          startDate: entry.startDate,
-          endDate: entry.endDate,
-          pct: entry.pct,
-          topup: entry.topup,
-          lastEdited: entry.lastEdited,
-          businessDaysOnly: entry.businessDaysOnly,
-        })),
-      },
-    });
-
-    const whatIfEndBalanceEl = $("#whatifEndBalance");
-    if (whatIfEndBalanceEl) whatIfEndBalanceEl.textContent = fmtMoney(whatIfProjection.endBalance);
-    const endActualEl = $("#whatifEndBalanceActual");
-    if (endActualEl) endActualEl.textContent = `Actual: ${fmtMoney(actualProjection.endBalance)}`;
-    const endDelta = whatIfProjection.endBalance - actualProjection.endBalance;
-    const endDeltaEl = $("#whatifEndBalanceDelta");
-    if (endDeltaEl) {
-      endDeltaEl.textContent = formatMoneyDelta(endDelta);
-      applyDeltaClass(endDeltaEl, endDelta, { positiveIsGood: true });
-    }
-
-    const whatIfIncomeEl = $("#whatifTotalIncome");
-    if (whatIfIncomeEl) whatIfIncomeEl.textContent = fmtMoney(whatIfProjection.totalIncome);
-    const incomeActualEl = $("#whatifTotalIncomeActual");
-    if (incomeActualEl) incomeActualEl.textContent = `Actual: ${fmtMoney(actualProjection.totalIncome)}`;
-
-    const whatIfWeeklyEl = $("#whatifWeeklyIncome");
-    if (whatIfWeeklyEl) whatIfWeeklyEl.textContent = fmtMoney(whatIfProjection.projectedWeeklyIncome);
-    const weeklyActualEl = $("#whatifWeeklyIncomeActual");
-    if (weeklyActualEl) weeklyActualEl.textContent = `Actual: ${fmtMoney(actualProjection.projectedWeeklyIncome)}`;
-
-    const whatIfExpensesEl = $("#whatifTotalExpenses");
-    if (whatIfExpensesEl) whatIfExpensesEl.textContent = fmtMoney(whatIfProjection.totalExpenses);
-    const expensesActualEl = $("#whatifTotalExpensesActual");
-    if (expensesActualEl) expensesActualEl.textContent = `Actual: ${fmtMoney(actualProjection.totalExpenses)}`;
-
-    const whatIfLowestEl = $("#whatifLowestBalance");
-    if (whatIfLowestEl) whatIfLowestEl.textContent = fmtMoney(whatIfProjection.lowestBalance);
-    const lowestActualEl = $("#whatifLowestBalanceActual");
-    if (lowestActualEl) lowestActualEl.textContent = `Actual: ${fmtMoney(actualProjection.lowestBalance)}`;
-    const lowestDelta = whatIfProjection.lowestBalance - actualProjection.lowestBalance;
-    const lowestDeltaEl = $("#whatifLowestBalanceDelta");
-    if (lowestDeltaEl) {
-      lowestDeltaEl.textContent = formatMoneyDelta(lowestDelta);
-      applyDeltaClass(lowestDeltaEl, lowestDelta, { positiveIsGood: true });
-    }
-
-    const whatIfPeakEl = $("#whatifPeakBalance");
-    if (whatIfPeakEl) whatIfPeakEl.textContent = fmtMoney(whatIfProjection.peakBalance);
-    const peakActualEl = $("#whatifPeakBalanceActual");
-    if (peakActualEl) peakActualEl.textContent = `Actual: ${fmtMoney(actualProjection.peakBalance)}`;
-
-    const whatIfNegDaysEl = $("#whatifNegativeDays");
-    if (whatIfNegDaysEl) whatIfNegDaysEl.textContent = String(whatIfProjection.negativeDays);
-    const negActualEl = $("#whatifNegativeDaysActual");
-    if (negActualEl) negActualEl.textContent = `Actual: ${actualProjection.negativeDays}`;
-    const negDeltaEl = $("#whatifNegativeDaysDelta");
-    const negDelta = whatIfProjection.negativeDays - actualProjection.negativeDays;
-    if (negDeltaEl) {
-      negDeltaEl.textContent = formatNumberDelta(negDelta);
-      applyDeltaClass(negDeltaEl, negDelta, { positiveIsGood: false });
-    }
-
-    const firstNegativeEl = $("#whatifFirstNegative");
-    if (firstNegativeEl) firstNegativeEl.textContent = whatIfProjection.firstNegativeDate ? fmtDate(whatIfProjection.firstNegativeDate) : "—";
-    const firstActualEl = $("#whatifFirstNegativeActual");
-    if (firstActualEl) firstActualEl.textContent = `Actual: ${actualProjection.firstNegativeDate ? fmtDate(actualProjection.firstNegativeDate) : "—"}`;
-    const firstDeltaEl = $("#whatifFirstNegativeDelta");
-    if (firstDeltaEl) {
-      if (!whatIfProjection.firstNegativeDate && !actualProjection.firstNegativeDate) {
-        firstDeltaEl.textContent = "—";
-        firstDeltaEl.className = "delta delta-neutral";
-      } else if (!whatIfProjection.firstNegativeDate && actualProjection.firstNegativeDate) {
-        firstDeltaEl.textContent = "Cleared";
-        firstDeltaEl.className = "delta delta-positive";
-      } else if (whatIfProjection.firstNegativeDate && !actualProjection.firstNegativeDate) {
-        firstDeltaEl.textContent = "New";
-        firstDeltaEl.className = "delta delta-negative";
-      } else {
-        const deltaDays =
-          (fromYMD(whatIfProjection.firstNegativeDate).getTime() - fromYMD(actualProjection.firstNegativeDate).getTime()) /
-          (1000 * 60 * 60 * 24);
-        firstDeltaEl.textContent = formatNumberDelta(deltaDays);
-        applyDeltaClass(firstDeltaEl, deltaDays, { positiveIsGood: true });
-      }
-    }
-
-    const chartCanvas = $("#whatifChart");
-    if (chartCanvas) {
-      const existingChart = typeof Chart?.getChart === "function" ? Chart.getChart(chartCanvas) : null;
-      if (existingChart) existingChart.destroy();
-      if (whatIfChart) {
-        whatIfChart.destroy();
-        whatIfChart = undefined;
-      }
-      const actualMap = new Map();
-      const sandboxMap = new Map();
-      for (const row of actualProjection.cal || []) {
-        actualMap.set(row.date, round2(row.running));
-      }
-      for (const row of whatIfProjection.cal || []) {
-        sandboxMap.set(row.date, round2(row.running));
-      }
-      const labels = Array.from(new Set([...actualMap.keys(), ...sandboxMap.keys()])).sort((a, b) => compareYMD(a, b));
-      const actualData = labels.map((date) => (actualMap.has(date) ? round2(actualMap.get(date)) : null));
-      const sandboxData = labels.map((date) => (sandboxMap.has(date) ? round2(sandboxMap.get(date)) : null));
-      const ctx = chartCanvas.getContext("2d");
-      whatIfChart = new Chart(ctx, {
-        type: "line",
-        data: {
-          labels,
-          datasets: [
-            {
-              label: "Actual Projection",
-              data: actualData,
-              borderColor: "#94a3b8",
-              backgroundColor: "rgba(148, 163, 184, 0.18)",
-              borderWidth: 2,
-              pointRadius: 0,
-              tension: 0.25,
-              borderDash: [6, 4],
-              spanGaps: false,
-            },
-            {
-              label: "What-If Projection",
-              data: sandboxData,
-              borderColor: "#5F7BFF",
-              backgroundColor: "rgba(95, 123, 255, 0.2)",
-              borderWidth: 2,
-              pointRadius: 0,
-              tension: 0.25,
-              spanGaps: false,
-            },
-          ],
-        },
-        options: {
-          interaction: { intersect: false, mode: "index" },
-          plugins: { legend: { display: true } },
-          scales: {
-            x: { ticks: { maxTicksLimit: 10 } },
-            y: {
-              beginAtZero: false,
-              grid: {
-                color: (ctx) => {
-                  const value = ctx.tick && typeof ctx.tick.value === "number" ? ctx.tick.value : null;
-                  return value === 0 ? "#0f172a" : "rgba(148, 163, 184, 0.2)";
-                },
-                lineWidth: (ctx) => {
-                  const value = ctx.tick && typeof ctx.tick.value === "number" ? ctx.tick.value : null;
-                  return value === 0 ? 2 : 1;
-                },
-              },
-            },
-          },
-        },
-      });
-    }
-
-    const calendarGrid = $("#whatifCalendar");
-    if (calendarGrid) {
-      const rows = (whatIfProjection.cal || [])
-        .filter((row) => compareYMD(row.date, startDate) >= 0)
-        .slice(0, 30);
-
-      if (!rows.length) {
-        calendarGrid.classList.add("whatif-calendar-grid--empty");
-        calendarGrid.innerHTML = '<div class="whatif-calendar-empty">No projection data available.</div>';
-      } else {
-        calendarGrid.classList.remove("whatif-calendar-grid--empty");
-        calendarGrid.innerHTML = "";
-        const rowMap = new Map(rows.map((row) => [row.date, row]));
-        const activeStart = rows[0].date;
-        const activeEnd = rows[rows.length - 1].date;
-        const startDateObj = fromYMD(activeStart);
-        const endDateObj = fromYMD(activeEnd);
-        const calendarStart = new Date(startDateObj);
-        calendarStart.setDate(calendarStart.getDate() - calendarStart.getDay());
-        const calendarEnd = new Date(endDateObj);
-        calendarEnd.setDate(calendarEnd.getDate() + (6 - calendarEnd.getDay()));
-
-        const createMetric = (label, value, className = "") => {
-          const el = document.createElement("div");
-          el.className = `whatif-calendar-metric ${className}`.trim();
-          el.innerHTML = `<span>${label}</span><span>${value}</span>`;
-          return el;
-        };
-
-        for (let cursor = new Date(calendarStart); cursor <= calendarEnd; cursor.setDate(cursor.getDate() + 1)) {
-          const ymd = toYMD(cursor);
-          const row = rowMap.get(ymd);
-          const isInRange = compareYMD(ymd, activeStart) >= 0 && compareYMD(ymd, activeEnd) <= 0;
-          const cell = document.createElement("div");
-          cell.className = "whatif-calendar-cell";
-          if (!isInRange) cell.classList.add("is-outside");
-          if (!row && isInRange) cell.classList.add("no-data");
-
-          const dateEl = document.createElement("div");
-          dateEl.className = "whatif-calendar-date";
-          dateEl.textContent = fmtDate(ymd);
-          cell.appendChild(dateEl);
-
-          if (isInRange) {
-            const income = row ? row.income : 0;
-            const expenses = row ? row.expenses : 0;
-            const net = row ? row.net : income - expenses;
-            const running = row ? row.running : 0;
-
-            const incomeMetric = createMetric("Income", fmtMoney(income), "income");
-            if (income > 0) incomeMetric.classList.add("positive");
-            cell.appendChild(incomeMetric);
-
-            const expenseMetric = createMetric("Expenses", fmtMoney(expenses), "expenses");
-            if (expenses > 0) expenseMetric.classList.add("negative");
-            cell.appendChild(expenseMetric);
-
-            const netMetric = createMetric("Net", fmtMoney(net), "net");
-            if (net > 0) netMetric.classList.add("positive");
-            else if (net < 0) netMetric.classList.add("negative");
-            cell.appendChild(netMetric);
-
-            const runningMetric = createMetric("Running", fmtMoney(running), "running");
-            if (running > 0) runningMetric.classList.add("positive");
-            else if (running < 0) runningMetric.classList.add("negative");
-            cell.appendChild(runningMetric);
-          }
-
-          calendarGrid.appendChild(cell);
-        }
-      }
-    }
-    const tableStartLabel = $("#whatifTableStart");
-    if (tableStartLabel) tableStartLabel.textContent = startDate ? fmtDate(startDate) : "—";
-  };
-
-
-  const bindWhatIf = () => {
-    $("#whatifPullBtn")?.addEventListener("click", () => {
-      WHATIF = sanitizeWhatIfState({ base: STATE }, STATE);
-      saveWhatIf(WHATIF);
-      renderWhatIf();
-    });
-
-    $("#whatifExportBtn")?.addEventListener("click", () => {
-      const blob = new Blob([JSON.stringify(WHATIF, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "cashflow-whatif.json";
-      a.click();
-      URL.revokeObjectURL(url);
-    });
-
-    const importDialog = $("#whatifImportDialog");
-    $("#whatifImportBtn")?.addEventListener("click", () => importDialog?.showModal());
-    $("#confirmWhatifImportBtn")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      try {
-        const payload = JSON.parse($("#whatifImportText").value);
-        WHATIF = sanitizeWhatIfState(payload, STATE);
-        saveWhatIf(WHATIF);
-        importDialog?.close();
-        renderWhatIf();
-      } catch (err) {
-        const message = err && err.message ? err.message : String(err);
-        alert("Import failed: " + message);
-      }
-    });
-    importDialog?.addEventListener("close", () => {
-      const field = $("#whatifImportText");
-      if (field) field.value = "";
-    });
-
-    const startInput = $("#whatifStartDate");
-    startInput?.addEventListener("change", (e) => {
-      const value = e.target.value;
-      if (!isValidYMDString(value)) {
-        e.target.value = WHATIF.tweaks.startDate || "";
-        return;
-      }
-      WHATIF.tweaks.startDate = value;
-      if (!isValidYMDString(WHATIF.tweaks.endDate) || compareYMD(WHATIF.tweaks.startDate, WHATIF.tweaks.endDate) > 0) {
-        WHATIF.tweaks.endDate = WHATIF.tweaks.startDate;
-      }
-      saveWhatIf(WHATIF);
-      renderWhatIf();
-    });
-
-    const endInput = $("#whatifEndDate");
-    endInput?.addEventListener("change", (e) => {
-      const value = e.target.value;
-      if (!isValidYMDString(value)) {
-        e.target.value = WHATIF.tweaks.endDate || "";
-        return;
-      }
-      WHATIF.tweaks.endDate = value;
-      if (isValidYMDString(WHATIF.tweaks.startDate) && compareYMD(WHATIF.tweaks.startDate, WHATIF.tweaks.endDate) > 0) {
-        WHATIF.tweaks.startDate = WHATIF.tweaks.endDate;
-      }
-      saveWhatIf(WHATIF);
-      renderWhatIf();
-    });
-
-    const getGlobalTweaks = () => {
-      if (!WHATIF.tweaks.global || typeof WHATIF.tweaks.global !== "object") {
-        WHATIF.tweaks.global = { pct: 0, delta: 0, lastEdited: "pct" };
-      }
-      return WHATIF.tweaks.global;
-    };
-
-    const getSaleTweaks = () => {
-      if (!WHATIF.tweaks.sale || typeof WHATIF.tweaks.sale !== "object") {
-        WHATIF.tweaks.sale = { enabled: false, entries: [] };
-      }
-      if (!Array.isArray(WHATIF.tweaks.sale.entries)) {
-        WHATIF.tweaks.sale.entries = [];
-      }
-      return WHATIF.tweaks.sale;
-    };
-
-    const getSaleDefaultStart = () => {
-      const sandboxStart = WHATIF.tweaks.startDate;
-      if (isValidYMDString(sandboxStart)) return sandboxStart;
-      const baseSettings = WHATIF.base?.settings || defaultState().settings;
-      if (isValidYMDString(baseSettings.startDate)) return baseSettings.startDate;
-      return todayYMD;
-    };
-
-    const updateGlobalPct = (raw) => {
-      const value = clampPercent(Number(raw) / 100, { min: -1, max: 2, fallback: getGlobalTweaks().pct });
-      const global = getGlobalTweaks();
-      global.pct = value;
-      global.lastEdited = "pct";
-      saveWhatIf(WHATIF);
-      scheduleWhatIfRender();
-    };
-
-    const pctNumber = $("#whatifGlobalPct");
-    pctNumber?.addEventListener("input", (e) => updateGlobalPct(e.target.value));
-    const pctSlider = $("#whatifGlobalPctSlider");
-    pctSlider?.addEventListener("input", (e) => updateGlobalPct(e.target.value));
-
-    const deltaInput = $("#whatifGlobalDelta");
-    deltaInput?.addEventListener("change", (e) => {
-      const global = getGlobalTweaks();
-      const value = clampCurrency(e.target.value, global.delta);
-      global.delta = value;
-      global.lastEdited = "delta";
-      saveWhatIf(WHATIF);
-      scheduleWhatIfRender();
-    });
-
-    const effectiveInput = $("#whatifGlobalEffective");
-    effectiveInput?.addEventListener("change", (e) => {
-      const global = getGlobalTweaks();
-      const value = Number(e.target.value);
-      if (!Number.isFinite(value)) {
-        scheduleWhatIfRender();
-        return;
-      }
-      const pct = clampPercent(global.pct, { min: -1, max: 2, fallback: 0 });
-      global.pct = pct;
-      global.delta = round2(value - 100 * (1 + pct));
-      global.lastEdited = "effective";
-      saveWhatIf(WHATIF);
-      scheduleWhatIfRender();
-    });
-
-    const streamContainer = $("#whatifStreams");
-    const handleStreamValue = (event) => {
-      const target = event.target;
-      const role = target?.getAttribute?.("data-role");
-      if (!role) return;
-      if ((role === "effectiveInput" || role === "weeklyInput") && event.type !== "change") return;
-      const wrapper = target.closest("[data-stream]");
-      if (!wrapper) return;
-      const streamId = wrapper.getAttribute("data-stream");
-      const entry = ensureWhatIfStreamTweak(streamId);
-      const stream = getStreamById(WHATIF.base, streamId) || getStreamById(STATE, streamId);
-      const global = getGlobalTweaks();
-      let changed = false;
-      if (role === "pctInput" || role === "pctSlider") {
-        const pct = clampPercent(Number(target.value) / 100, { min: -1, max: 2, fallback: entry.pct });
-        entry.pct = pct;
-        entry.lastEdited = "pct";
-        entry.effective = null;
-        entry.weeklyTarget = null;
-        changed = true;
-      } else if (role === "deltaInput") {
-        const delta = clampCurrency(target.value, entry.delta);
-        entry.delta = delta;
-        entry.lastEdited = "delta";
-        entry.effective = null;
-        entry.weeklyTarget = null;
-        changed = true;
-      } else if (role === "effectiveInput") {
-        const value = Number(target.value);
-        if (!Number.isFinite(value)) {
-          scheduleWhatIfRender();
-          return;
-        }
-        entry.effective = round2(value);
-        entry.lastEdited = "effective";
-        entry.weeklyTarget = null;
-        changed = true;
-      } else if (role === "weeklyInput") {
-        const raw = target.value.trim();
-        if (!raw) {
-          entry.weeklyTarget = null;
-          entry.lastEdited = "pct";
-        } else {
-          const value = Number(raw);
-          const occurrences = estimateOccurrencesPerWeek(stream || {});
-          if (!Number.isFinite(value) || occurrences <= 0) {
-            entry.weeklyTarget = null;
-            entry.lastEdited = "pct";
-          } else {
-            entry.weeklyTarget = round2(value);
-            entry.lastEdited = "weekly";
-            entry.effective = null;
-          }
-        }
-        changed = true;
-      }
-      if (changed) {
-        saveWhatIf(WHATIF);
-        scheduleWhatIfRender();
-      }
-    };
-    streamContainer?.addEventListener("input", handleStreamValue);
-    streamContainer?.addEventListener("change", handleStreamValue);
-
-    const handleStreamClick = (event) => {
-      const target = event.target.closest("[data-role]");
-      if (!target) return;
-      const role = target.getAttribute("data-role");
-      const wrapper = target.closest("[data-stream]");
-      if (!wrapper) return;
-      const streamId = wrapper.getAttribute("data-stream");
-      const entry = ensureWhatIfStreamTweak(streamId);
-      const stream = getStreamById(WHATIF.base, streamId) || getStreamById(STATE, streamId);
-      const global = getGlobalTweaks();
-      if (role === "resetStream") {
-        entry.pct = 0;
-        entry.delta = 0;
-        entry.effective = null;
-        entry.weeklyTarget = null;
-        entry.lastEdited = "pct";
-        saveWhatIf(WHATIF);
-        scheduleWhatIfRender();
-      } else if (role === "toggleLock") {
-        if (!stream) return;
-        if (entry.lastEdited === "effective" || entry.lastEdited === "weekly") {
-          entry.lastEdited = "pct";
-          entry.effective = null;
-          entry.weeklyTarget = null;
-        } else {
-          const baseAmount = getStreamBaseAmount(stream);
-          const amount = evaluateWhatIfStream(stream, entry, baseAmount, global);
-          entry.effective = round2(amount);
-          entry.weeklyTarget = null;
-          entry.lastEdited = "effective";
-        }
-        saveWhatIf(WHATIF);
-        scheduleWhatIfRender();
-      }
-    };
-    streamContainer?.addEventListener("click", handleStreamClick);
-
-    const saleEnabled = $("#whatifSaleEnabled");
-    saleEnabled?.addEventListener("change", (e) => {
-      const sale = getSaleTweaks();
-      sale.enabled = Boolean(e.target.checked);
-      if (sale.enabled && !sale.entries.length) {
-        const entry = createSaleEntry(getSaleDefaultStart());
-        sale.entries.push(entry);
-        saleUIState.set(entry.id, { isEditing: true, draft: createSaleDraftFromEntry(entry) });
-      }
-      saveWhatIf(WHATIF);
-      renderWhatIf();
-    });
-
-    const addSaleBtn = $("#whatifAddSaleBtn");
-    addSaleBtn?.addEventListener("click", () => {
-      const sale = getSaleTweaks();
-      const entry = createSaleEntry(getSaleDefaultStart());
-      sale.entries.push(entry);
-      saleUIState.set(entry.id, { isEditing: true, draft: createSaleDraftFromEntry(entry) });
-      saveWhatIf(WHATIF);
-      renderWhatIf();
-    });
-
-    const saleList = $("#whatifSaleList");
-    const handleSaleInput = (event) => {
-      const target = event.target;
-      const role = target?.getAttribute?.("data-role");
-      if (!role) return;
-      if (role === "salePct" || role === "saleTopup" || role === "saleName") {
-        if (event.type !== "input" && event.type !== "change") return;
-      } else if (event.type !== "change") {
-        return;
-      }
-      const wrapper = target.closest("[data-sale-id]");
-      if (!wrapper) return;
-      const id = wrapper.getAttribute("data-sale-id");
-      const state = saleUIState.get(id);
-      if (!state || !state.isEditing) return;
-      const draft = state.draft;
-      if (!draft) return;
-      if (role === "salePct") {
-        draft.pct = target.value;
-        draft.lastEdited = "pct";
-        const label = wrapper.querySelector(".whatif-sale-mode-label");
-        if (label) label.textContent = "Mode: % uplift";
-      } else if (role === "saleTopup") {
-        draft.topup = target.value;
-        draft.lastEdited = "topup";
-        const label = wrapper.querySelector(".whatif-sale-mode-label");
-        if (label) label.textContent = "Mode: $ top-up per day";
-      } else if (role === "saleStart") {
-        const value = target.value;
-        if (!isValidYMDString(value)) {
-          target.value = draft.startDate || "";
-          return;
-        }
-        draft.startDate = value;
-        if (isValidYMDString(draft.endDate) && compareYMD(draft.startDate, draft.endDate) > 0) {
-          draft.endDate = draft.startDate;
-          const endInput = wrapper.querySelector("[data-role='saleEnd']");
-          if (endInput) endInput.value = draft.endDate;
-        }
-      } else if (role === "saleEnd") {
-        const value = target.value;
-        if (!isValidYMDString(value)) {
-          target.value = draft.endDate || "";
-          return;
-        }
-        draft.endDate = value;
-        if (isValidYMDString(draft.startDate) && compareYMD(draft.startDate, draft.endDate) > 0) {
-          draft.startDate = draft.endDate;
-          const startInput = wrapper.querySelector("[data-role='saleStart']");
-          if (startInput) startInput.value = draft.startDate;
-        }
-      } else if (role === "saleBusiness") {
-        draft.businessDaysOnly = Boolean(target.checked);
-      } else if (role === "saleName") {
-        draft.name = target.value.slice(0, 120);
-      } else {
-        return;
-      }
-    };
-    saleList?.addEventListener("input", handleSaleInput);
-    saleList?.addEventListener("change", handleSaleInput);
-    saleList?.addEventListener("click", (event) => {
-      const control = event.target.closest("[data-role]");
-      if (!control) return;
-      const role = control.getAttribute("data-role");
-      if (!role) return;
-      const wrapper = control.closest("[data-sale-id]");
-      if (!wrapper) return;
-      const id = wrapper.getAttribute("data-sale-id");
-      const sale = getSaleTweaks();
-      if (role === "removeSale") {
-        sale.entries = sale.entries.filter((entry) => entry && entry.id !== id);
-        saleUIState.delete(id);
-        saveWhatIf(WHATIF);
-        renderWhatIf();
-      } else if (role === "editSale") {
-        const entry = sale.entries.find((item) => item && item.id === id);
-        if (!entry) return;
-        const state = ensureSaleUIState(entry);
-        if (!state) return;
-        state.isEditing = true;
-        state.draft = createSaleDraftFromEntry(entry);
-        renderWhatIf();
-      } else if (role === "applySale") {
-        const entry = sale.entries.find((item) => item && item.id === id);
-        const state = saleUIState.get(id);
-        if (!entry || !state) return;
-        const draft = state.draft || createSaleDraftFromEntry(entry);
-        const pct = clampPercent(Number(draft.pct) / 100, { min: -1, max: 5, fallback: entry.pct });
-        const topup = clampCurrency(draft.topup, entry.topup);
-        let startDate = isValidYMDString(draft.startDate) ? draft.startDate : entry.startDate;
-        if (!isValidYMDString(startDate)) startDate = entry.startDate;
-        let endDate = isValidYMDString(draft.endDate) ? draft.endDate : startDate;
-        if (!isValidYMDString(endDate)) endDate = startDate;
-        if (isValidYMDString(startDate) && isValidYMDString(endDate) && compareYMD(startDate, endDate) > 0) {
-          endDate = startDate;
-        }
-        entry.name = (draft.name || "").trim().slice(0, 120);
-        entry.pct = pct;
-        entry.topup = topup;
-        entry.startDate = startDate;
-        entry.endDate = endDate;
-        entry.businessDaysOnly = Boolean(draft.businessDaysOnly);
-        entry.lastEdited = draft.lastEdited === "topup" ? "topup" : "pct";
-        state.isEditing = false;
-        state.draft = createSaleDraftFromEntry(entry);
-        saveWhatIf(WHATIF);
-        renderWhatIf();
-      }
-    });
-  };
-
-
-
-  const recalcAndRender = () => {
-    renderDashboard();
-    renderWhatIf();
-    renderAdjustments();
-    renderOneOffs();
-    renderStreams();
-  };
-
-  // ---------- Import / Export ----------
-  const bindImportExport = () => {
-    $("#exportBtn").addEventListener("click", () => {
-      const blob = new Blob([JSON.stringify(STATE, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "cashflow-2025.json";
-      a.click();
-      URL.revokeObjectURL(url);
-    });
-
-    $("#pdfBtn").addEventListener("click", () => {
-      const jsPDF = window.jspdf?.jsPDF || window.jsPDF;
-      if (typeof jsPDF !== "function") {
-        alert("PDF generator not available.");
-        return;
-      }
-
-      const { cal } = computeProjection(STATE);
-      const startYMD = todayYMD;
-      const end = fromYMD(startYMD);
-      end.setDate(end.getDate() + 29);
-      const endYMD = toYMD(end);
-      const next30 = cal.filter((row) => compareYMD(row.date, startYMD) >= 0 && compareYMD(row.date, endYMD) <= 0);
-
-      if (!next30.length) {
-        alert("No projection data for the next 30 days.");
-        return;
-      }
-
-      const doc = new jsPDF({ orientation: "landscape" });
-      if (typeof doc.autoTable !== "function") {
-        alert("PDF table plugin not available.");
-        return;
-      }
-      doc.setFontSize(16);
-      doc.text("Next 30 Days Cash Flow", 14, 15);
-      doc.setFontSize(10);
-      doc.text(`Generated on ${startYMD}`, 14, 22);
-
-      const tableBody = next30.map((row) => {
-        const incomeDetails = Array.isArray(row.incomeDetails) && row.incomeDetails.length
-          ? row.incomeDetails.map((item) => `${item.source}: ${fmtMoney(item.amount)}`).join("\n")
-          : "—";
-        const expenseDetails = Array.isArray(row.expenseDetails) && row.expenseDetails.length
-          ? row.expenseDetails.map((item) => `${item.source}: ${fmtMoney(item.amount)}`).join("\n")
-          : "—";
-        return [
-          row.date,
-          fmtMoney(row.income),
-          incomeDetails,
-          fmtMoney(row.expenses),
-          expenseDetails,
-          fmtMoney(row.running),
-        ];
-      });
-
-      doc.autoTable({
-        startY: 28,
-        head: [["Date", "Income", "Income Sources", "Expenses", "Expense Sources", "Bank Balance"]],
-        body: tableBody,
-        styles: { valign: "top", fontSize: 9 },
-        columnStyles: {
-          2: { cellWidth: 70 },
-          4: { cellWidth: 70 },
-        },
-        headStyles: { fillColor: [15, 23, 42] },
-      });
-
-      doc.save(`cashflow-next-30-days-${startYMD}.pdf`);
-    });
-
-    const snapshotBtn = $("#snapshotPdfBtn");
-    if (snapshotBtn) {
-      snapshotBtn.addEventListener("click", () => {
-        const jsPDF = window.jspdf?.jsPDF || window.jsPDF;
-        if (typeof jsPDF !== "function") {
-          alert("PDF generator not available.");
-          return;
-        }
-
-        const projection = computeProjection(STATE);
-        const doc = new jsPDF({ orientation: "landscape" });
-        if (typeof doc.autoTable !== "function") {
-          alert("PDF table plugin not available.");
-          return;
-        }
-
-        const { settings } = STATE;
-        doc.setFontSize(18);
-        doc.text("Cash Flow Snapshot", 14, 15);
-        doc.setFontSize(10);
-        doc.text(`Generated on ${todayYMD}`, 14, 22);
-        if (settings?.startDate || settings?.endDate) {
-          const rangeText = `Model Range: ${settings?.startDate || "—"} to ${settings?.endDate || "—"}`;
-          doc.text(rangeText, 14, 28);
-        }
-
-        const formatDateOrDash = (ymd) => (ymd ? fmtDate(ymd) : "—");
-        const quickStatsRows = [
-          ["Projected End Balance", fmtMoney(projection.endBalance), "—"],
-          ["Total Planned Income", fmtMoney(projection.totalIncome), "—"],
-          ["Projected Weekly Income", fmtMoney(projection.projectedWeeklyIncome), "—"],
-          ["Total Planned Expenses", fmtMoney(projection.totalExpenses), "—"],
-          ["Lowest Projected Balance", fmtMoney(projection.lowestBalance), formatDateOrDash(projection.lowestBalanceDate)],
-          ["Peak Projected Balance", fmtMoney(projection.peakBalance), formatDateOrDash(projection.peakBalanceDate)],
-          ["Days Below $0", String(projection.negativeDays), "—"],
-          ["First Negative Day", formatDateOrDash(projection.firstNegativeDate), "—"],
-        ];
-
-        doc.autoTable({
-          startY: 35,
-          head: [["Metric", "Value", "Date / Notes"]],
-          body: quickStatsRows,
-          styles: { fontSize: 10, cellPadding: 3 },
-          headStyles: { fillColor: [15, 23, 42] },
-          columnStyles: {
-            0: { cellWidth: 70 },
-            1: { cellWidth: 45 },
-          },
-        });
-
-        const chartCanvas = $("#balanceChart");
-        const chartStartY = (doc.lastAutoTable?.finalY || 35) + 10;
-        if (chartCanvas) {
-          try {
-            const chartDataUrl = chartCanvas.toDataURL("image/png", 1.0);
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const pageHeight = doc.internal.pageSize.getHeight();
-            const margin = 14;
-            const availableWidth = pageWidth - margin * 2;
-            let imageY = chartStartY;
-            if (imageY + 10 > pageHeight) imageY = margin;
-            const availableHeight = pageHeight - imageY - margin;
-            if (availableWidth > 0 && availableHeight > 0) {
-              const imgProps = doc.getImageProperties(chartDataUrl);
-              let imgWidth = availableWidth;
-              let imgHeight = (imgProps.height * imgWidth) / imgProps.width;
-              if (imgHeight > availableHeight) {
-                imgHeight = availableHeight;
-                imgWidth = (imgProps.width * imgHeight) / imgProps.height;
-              }
-              doc.addImage(chartDataUrl, "PNG", margin, imageY, imgWidth, imgHeight);
-            }
-          } catch (err) {
-            console.warn("Failed to render chart in PDF", err);
-            doc.setFontSize(12);
-            doc.text("Projected balance chart unavailable for export.", 14, chartStartY);
-          }
-        } else {
-          doc.setFontSize(12);
-          doc.text("Projected balance chart unavailable for export.", 14, chartStartY);
-        }
-
-        doc.addPage();
-        doc.setFontSize(16);
-        doc.text("Upcoming 14 Days", 14, 15);
-        doc.setFontSize(10);
-        doc.text(`Generated on ${todayYMD}`, 14, 22);
-
-        const next14 = Array.isArray(projection.cal) ? projection.cal.slice(0, 14) : [];
-        if (next14.length) {
-          const upcomingBody = next14.map((row) => [
-            row.date,
-            fmtMoney(row.income),
-            fmtMoney(row.expenses),
-            fmtMoney(row.net),
-            fmtMoney(row.running),
-          ]);
-          doc.autoTable({
-            startY: 28,
-            head: [["Date", "Income", "Expenses", "Net", "Running"]],
-            body: upcomingBody,
-            styles: { fontSize: 9 },
-            headStyles: { fillColor: [15, 23, 42] },
-            columnStyles: {
-              1: { cellWidth: 35 },
-              2: { cellWidth: 35 },
-              3: { cellWidth: 35 },
-              4: { cellWidth: 35 },
-            },
-          });
-        } else {
-          doc.setFontSize(12);
-          doc.text("No projection data available for the next 14 days.", 14, 32);
-        }
-
-        doc.save(`cash-flow-snapshot-${todayYMD}.pdf`);
-      });
-    }
-
-    const dlg = $("#importDialog");
-    $("#importBtn").addEventListener("click", () => dlg.showModal());
-    $("#confirmImportBtn").addEventListener("click", (e) => {
-      e.preventDefault();
-      try {
-        const parsed = JSON.parse($("#importText").value);
-        let nextState;
-        try {
-          nextState = normalizeState(parsed, { strict: true });
-        } catch (strictErr) {
-          nextState = normalizeState(parsed);
-          console.warn("Import used compatibility mode", strictErr);
-        }
-        STATE = nextState;
-        save(STATE);
-        dlg.close();
-        renderSettingsForm();
-        recalcAndRender();
-      } catch (err) {
-        const message = err && err.message ? err.message : String(err);
-        alert("Import failed: " + message);
-      }
-    });
-    dlg.addEventListener("close", () => ($("#importText").value = ""));
-  };
-
-  // ---------- Init ----------
-  const init = () => {
-    bindTabs();
-    bindImportExport();
-    initSettings();
-    bindAdjustments();
-    bindOneOffs();
-    bindStreams();
-    bindWhatIf();
-    initARImporter();
-
-    // Ensure defaults if missing
-    if (!STATE.settings.endDate) STATE.settings.endDate = defaultEnd;
-    save(STATE);
-
-    recalcAndRender();
-  };
-
-  document.addEventListener("DOMContentLoaded", init);
-})();
