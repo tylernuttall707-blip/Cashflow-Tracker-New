@@ -6,6 +6,72 @@ const ONE_OFF_SORT_KEYS = ["date", "schedule", "type", "name", "category", "next
 const DEFAULT_END = "2025-12-31";
 
 /**
+ * Normalize arbitrary weekday input into a sorted array of unique indices.
+ * @param {unknown} value - Raw weekday selection value(s).
+ * @returns {number[]} Sorted weekday indices (0 = Sunday).
+ */
+const normalizeWeekdayArray = (value) => {
+  if (value === undefined || value === null) return [];
+
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === "string" && value.includes(",")
+    ? value.split(/[\s,]+/)
+    : [value];
+
+  const seen = new Set();
+  const days = [];
+  for (const item of raw) {
+    if (item === undefined || item === null) continue;
+    const str = String(item).trim();
+    if (!str) continue;
+    const num = Number(str);
+    if (!Number.isFinite(num)) continue;
+    const normalized = clamp(Math.trunc(num), 0, 6);
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      days.push(normalized);
+    }
+  }
+
+  return days.sort((a, b) => a - b);
+};
+
+/**
+ * Resolve the first weekday index from arbitrary input.
+ * @param {unknown} value - Raw weekday selection.
+ * @param {number} [fallback=0] - Fallback weekday index.
+ * @returns {number} Normalized weekday index (0 = Sunday).
+ */
+const normalizeFirstWeekday = (value, fallback = 0) => {
+  const days = normalizeWeekdayArray(value);
+  if (days.length) return days[0];
+  const num = Number(value);
+  if (Number.isFinite(num)) return clamp(Math.trunc(num), 0, 6);
+  return clamp(Number(fallback) || 0, 0, 6);
+};
+
+/**
+ * Normalize the nth ordinal descriptor for monthly recurrences.
+ * @param {unknown} value - Raw nth descriptor.
+ * @returns {"1"|"2"|"3"|"4"|"5"|"last"} Normalized ordinal value.
+ */
+const normalizeNthDescriptor = (value) => {
+  if (value === null || value === undefined) return "1";
+  if (typeof value === "string") {
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed === "last") return "last";
+    const parsed = Number.parseInt(trimmed, 10);
+    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 5) return String(parsed);
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const int = Math.trunc(value);
+    if (int >= 1 && int <= 5) return String(int);
+  }
+  return "1";
+};
+
+/**
  * Generate a random identifier suitable for client-side records.
  * @returns {string} A pseudo-random identifier string.
  */
@@ -168,12 +234,36 @@ export const sanitizeOneOff = (entry, strict = false) => {
     result.frequency = frequency;
     result.startDate = startDate;
     result.endDate = endDate;
+    const start = fromYMD(startDate);
+    const startDow = Number.isNaN(start.getTime()) ? 0 : start.getDay();
+    const startDom = Number.isNaN(start.getTime()) ? 1 : start.getDate();
     if (compareYMD(result.startDate, result.endDate) > 0) {
       if (strict) throw new Error("Invalid recurring one-off range");
       result.endDate = result.startDate;
     }
     const onDate = typeof entry.onDate === "string" ? entry.onDate : null;
     if (onDate) result.onDate = onDate;
+    if (frequency === "daily") {
+      result.skipWeekends = Boolean(entry.skipWeekends);
+    }
+    if (frequency === "weekly" || frequency === "biweekly") {
+      const weekdays = normalizeWeekdayArray(entry.dayOfWeek);
+      result.dayOfWeek = weekdays.length ? weekdays : [startDow];
+    }
+    if (frequency === "monthly") {
+      const mode = entry.monthlyMode === "nth" ? "nth" : "day";
+      result.monthlyMode = mode;
+      if (mode === "nth") {
+        const weekdays = normalizeWeekdayArray(entry.dayOfWeek);
+        if (weekdays.length) result.dayOfWeek = weekdays;
+        result.nthWeek = normalizeNthDescriptor(entry.nthWeek ?? entry.nthWeekNumber);
+        result.nthWeekday = normalizeFirstWeekday(entry.nthWeekday ?? entry.dayOfWeek, startDow);
+      } else {
+        const rawDom = Number(entry.dayOfMonth);
+        const dom = Number.isFinite(rawDom) ? Math.trunc(rawDom) : startDom;
+        result.dayOfMonth = clamp(dom, 1, 31);
+      }
+    }
   } else {
     const date = typeof entry.date === "string" ? entry.date : null;
     if (!date) {
@@ -220,6 +310,10 @@ export const sanitizeStream = (entry, strict = false) => {
   const normalizedEnd = startVsEnd <= 0 ? endDate : startDate;
 
   const id = typeof entry.id === "string" ? entry.id : uid();
+  const startDateObj = fromYMD(normalizedStart);
+  const startDow = Number.isNaN(startDateObj.getTime()) ? 0 : startDateObj.getDay();
+  const startDom = Number.isNaN(startDateObj.getTime()) ? 1 : startDateObj.getDate();
+
   const stream = {
     id,
     name: typeof entry.name === "string" ? entry.name : "",
@@ -230,8 +324,6 @@ export const sanitizeStream = (entry, strict = false) => {
     endDate: normalizedEnd,
     onDate: typeof entry.onDate === "string" ? entry.onDate : null,
     skipWeekends: Boolean(entry.skipWeekends),
-    dayOfWeek: clamp(Number(entry.dayOfWeek ?? 0), 0, 6),
-    dayOfMonth: clamp(Number(entry.dayOfMonth ?? 1), 1, 31),
     steps: sanitizeSteps(entry.steps),
     escalatorPct: Number.isFinite(Number(entry.escalatorPct || 0)) ? Number(entry.escalatorPct || 0) : 0,
   };
@@ -243,10 +335,22 @@ export const sanitizeStream = (entry, strict = false) => {
     stream.skipWeekends = Boolean(entry.skipWeekends);
   }
   if (frequency === "weekly" || frequency === "biweekly") {
-    stream.dayOfWeek = clamp(Number(entry.dayOfWeek ?? 0), 0, 6);
+    const weekdays = normalizeWeekdayArray(entry.dayOfWeek);
+    stream.dayOfWeek = weekdays.length ? weekdays : [startDow];
   }
   if (frequency === "monthly") {
-    stream.dayOfMonth = clamp(Number(entry.dayOfMonth ?? 1), 1, 31);
+    const mode = entry.monthlyMode === "nth" ? "nth" : "day";
+    stream.monthlyMode = mode;
+    if (mode === "nth") {
+      const weekdays = normalizeWeekdayArray(entry.dayOfWeek);
+      if (weekdays.length) stream.dayOfWeek = weekdays;
+      stream.nthWeek = normalizeNthDescriptor(entry.nthWeek ?? entry.nthWeekNumber);
+      stream.nthWeekday = normalizeFirstWeekday(entry.nthWeekday ?? entry.dayOfWeek, startDow);
+    } else {
+      const rawDom = Number(entry.dayOfMonth);
+      const dom = Number.isFinite(rawDom) ? Math.trunc(rawDom) : startDom;
+      stream.dayOfMonth = clamp(dom, 1, 31);
+    }
   }
 
   return stream;
