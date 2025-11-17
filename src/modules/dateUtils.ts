@@ -134,8 +134,8 @@ export const parseExcelOrISODate = (value: string | number | Date | null | undef
   }
 
   const [datePart] = str.split(/\s+/);
-  if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(datePart)) {
-    const parts = datePart.split(/[\/\-]/).map((seg) => seg.trim());
+  if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(datePart)) {
+    const parts = datePart.split(/[/-]/).map((seg) => seg.trim());
     if (parts.length === 3) {
       const [m, d, yRaw] = parts;
       let year = Number(yRaw);

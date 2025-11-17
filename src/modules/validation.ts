@@ -239,7 +239,7 @@ export const sanitizeOneOff = (entry: unknown, strict: boolean = false): Transac
       return null;
     }
 
-    let recurringResult: RecurringTransaction = {
+    const recurringResult: RecurringTransaction = {
       ...resultWithNote,
       recurring: true as const,
       frequency: frequency as any,
