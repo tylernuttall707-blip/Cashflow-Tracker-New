@@ -466,3 +466,18 @@ export const hasValidRecurrenceWindow = (entry: RecurrenceWindow): boolean => {
   if (!isValidYMDString(start) || !isValidYMDString(end)) return false;
   return compareYMD(start, end) <= 0;
 };
+
+/**
+ * Remove duplicate transactions based on a composite key
+ */
+export const deduplicateTransactions = (transactions: Transaction[]): Transaction[] => {
+  const seen = new Set<string>();
+  return transactions.filter((tx) => {
+    const key = tx.recurring
+      ? `${tx.name}|${tx.category}|${tx.amount}|${tx.startDate}|${tx.endDate}`
+      : `${tx.name}|${tx.category}|${tx.amount}|${tx.date}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
