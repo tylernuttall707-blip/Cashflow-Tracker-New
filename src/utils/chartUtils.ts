@@ -6,8 +6,10 @@
 import type { ProjectionResult, YMDString } from '../types';
 import { round2 } from '../modules/calculations';
 import { compareYMD } from '../modules/dateUtils';
+import { Chart, registerables } from 'chart.js';
 
-declare const Chart: any;
+// Register all Chart.js components
+Chart.register(...registerables);
 
 /**
  * Chart color configuration
