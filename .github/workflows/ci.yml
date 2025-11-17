@@ -17,38 +17,52 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Check for package.json
+      id: check-package
+      run: |
+        if [ -f "package.json" ]; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "exists=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Use Node.js ${{ matrix.node-version }}
+      if: steps.check-package.outputs.exists == 'true'
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-        cache: 'npm'
 
     - name: Install dependencies
+      if: steps.check-package.outputs.exists == 'true'
       run: npm ci
 
     - name: Type check
+      if: steps.check-package.outputs.exists == 'true'
       run: npm run type-check
 
     - name: Lint
+      if: steps.check-package.outputs.exists == 'true'
       run: npm run lint
 
     - name: Run tests
+      if: steps.check-package.outputs.exists == 'true'
       run: npm run test:coverage
 
     - name: Upload coverage reports
+      if: steps.check-package.outputs.exists == 'true' && matrix.node-version == '20.x'
       uses: codecov/codecov-action@v3
-      if: matrix.node-version == '20.x'
       with:
         file: ./coverage/coverage-final.json
         flags: unittests
         name: codecov-umbrella
 
     - name: Build
+      if: steps.check-package.outputs.exists == 'true'
       run: npm run build
 
     - name: Upload build artifacts
+      if: steps.check-package.outputs.exists == 'true' && matrix.node-version == '20.x'
       uses: actions/upload-artifact@v4
-      if: matrix.node-version == '20.x'
       with:
         name: dist
         path: dist/
@@ -61,19 +75,31 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Check for package.json
+      id: check-package
+      run: |
+        if [ -f "package.json" ]; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "exists=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Use Node.js 20.x
+      if: steps.check-package.outputs.exists == 'true'
       uses: actions/setup-node@v4
       with:
         node-version: 20.x
-        cache: 'npm'
 
     - name: Install dependencies
+      if: steps.check-package.outputs.exists == 'true'
       run: npm ci
 
     - name: Build
+      if: steps.check-package.outputs.exists == 'true'
       run: npm run build
 
     - name: Deploy to GitHub Pages
+      if: steps.check-package.outputs.exists == 'true'
       uses: peaceiris/actions-gh-pages@v3
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
