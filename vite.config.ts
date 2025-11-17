@@ -14,7 +14,7 @@ export default defineConfig({
       '@utils': path.resolve(__dirname, './src/utils'),
     },
   },
-  base: './',
+  base: '/Cashflow-Tracker-New/',
   build: {
     outDir: 'dist',
     sourcemap: true,
