@@ -26,6 +26,9 @@ export type SortDirection = "asc" | "desc";
 /** Sort key for one-off entries */
 export type OneOffSortKey = "date" | "schedule" | "type" | "name" | "category" | "next";
 
+/** Sort key for expanded transactions */
+export type ExpandedSortKey = "date" | "type" | "name" | "category" | "amount" | "sourceType";
+
 /** Last edited field for What-If scenarios */
 export type LastEdited = "pct" | "delta" | "effective" | "weekly" | "topup";
 
@@ -89,6 +92,40 @@ export interface RecurringTransaction extends BaseTransaction {
 export type Transaction = OneOffTransaction | RecurringTransaction;
 
 /**
+ * Source type for expanded transactions
+ */
+export type ExpandedSourceType = "one-off" | "recurring" | "income-stream" | "adjustment";
+
+/**
+ * Expanded transaction - represents a single instance of a transaction
+ * This is the source of truth for all transactions in the master table
+ */
+export interface ExpandedTransaction {
+  id: string;
+  date: YMDString;
+  type: TransactionType;
+  name: string;
+  category: string;
+  amount: number;
+  note?: string;
+
+  // Metadata for traceability
+  sourceType: ExpandedSourceType;
+  parentId?: string;           // ID of original recurring definition (if applicable)
+  parentName?: string;          // Name of recurring series
+  isEdited?: boolean;           // Has this instance been modified from original?
+  originalAmount?: number;      // Original amount before manual editing
+
+  // AR-specific fields
+  source?: string;              // e.g., 'AR'
+  status?: string;              // e.g., 'active', 'archived'
+  company?: string;             // AR company name
+  invoice?: string;             // AR invoice number
+  dueDate?: YMDString;          // AR original due date
+  confidencePct?: number;       // AR confidence percentage
+}
+
+/**
  * Income stream definition
  */
 export interface IncomeStream {
@@ -137,10 +174,19 @@ export interface OneOffSortState {
 }
 
 /**
+ * Expanded transactions sort state
+ */
+export interface ExpandedSortState {
+  key: ExpandedSortKey;
+  direction: SortDirection;
+}
+
+/**
  * UI state
  */
 export interface UIState {
   oneOffSort: OneOffSortState;
+  expandedSort: ExpandedSortState;
 }
 
 /**
@@ -149,8 +195,9 @@ export interface UIState {
 export interface AppState {
   settings: Settings;
   adjustments: Adjustment[];
-  oneOffs: Transaction[];
-  incomeStreams: IncomeStream[];
+  oneOffs: Transaction[];              // Legacy - kept for backward compatibility
+  incomeStreams: IncomeStream[];       // Legacy - kept for backward compatibility
+  expandedTransactions: ExpandedTransaction[];  // New source of truth
   ui: UIState;
 }
 

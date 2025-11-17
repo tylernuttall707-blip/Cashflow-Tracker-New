@@ -28,7 +28,11 @@ export function Dashboard() {
         adjustments,
         oneOffs,
         incomeStreams,
-        ui: { oneOffSort: { key: 'date', direction: 'asc' } },
+        expandedTransactions: [],
+        ui: {
+          oneOffSort: { key: 'date', direction: 'asc' },
+          expandedSort: { key: 'date', direction: 'asc' },
+        },
       });
       setProjection(result);
     } catch (err) {

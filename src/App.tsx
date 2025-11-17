@@ -12,13 +12,14 @@ import {
   CashMovements,
   IncomePlan,
   Receivables,
+  AllTransactions,
   type TabId,
 } from './components';
 import './App.css';
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
-  const { importData, settings, adjustments, oneOffs, incomeStreams } = useAppStore();
+  const { importData, settings, adjustments, oneOffs, incomeStreams, expandedTransactions } = useAppStore();
 
   const handleExportJSON = () => {
     const data = {
@@ -26,6 +27,7 @@ function App() {
       adjustments,
       oneOffs,
       incomeStreams,
+      expandedTransactions,
     };
 
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -83,6 +85,7 @@ function App() {
       <main>
         {activeTab === 'dashboard' && <Dashboard />}
         {activeTab === 'whatif' && <WhatIf />}
+        {activeTab === 'transactions' && <AllTransactions />}
         {activeTab === 'movements' && <CashMovements />}
         {activeTab === 'income' && <IncomePlan />}
         {activeTab === 'receivables' && <Receivables />}
