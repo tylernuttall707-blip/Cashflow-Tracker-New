@@ -83,7 +83,7 @@ export function expandRecurringTransaction(
 }
 
 function generateDailyInstances(transaction: any, start: Date, end: Date, instances: TransactionInstance[]): void {
-  let currentDate = new Date(start);
+  const currentDate = new Date(start);
 
   while (currentDate <= end) {
     if (!transaction.skipWeekends || !isWeekend(currentDate)) {
@@ -95,7 +95,7 @@ function generateDailyInstances(transaction: any, start: Date, end: Date, instan
 
 function generateWeeklyInstances(transaction: any, start: Date, end: Date, instances: TransactionInstance[]): void {
   const startDate = new Date(transaction.startDate);
-  let currentDate = new Date(start);
+  const currentDate = new Date(start);
 
   // Find the first occurrence on or after start date
   const dayOfWeek = transaction.dayOfWeek?.[0] || startDate.getDay();
@@ -111,7 +111,7 @@ function generateWeeklyInstances(transaction: any, start: Date, end: Date, insta
 
 function generateBiweeklyInstances(transaction: any, start: Date, end: Date, instances: TransactionInstance[]): void {
   const startDate = new Date(transaction.startDate);
-  let currentDate = new Date(startDate);
+  const currentDate = new Date(startDate);
 
   // Fast forward to first occurrence in view range
   while (currentDate < start) {
@@ -125,7 +125,7 @@ function generateBiweeklyInstances(transaction: any, start: Date, end: Date, ins
 }
 
 function generateMonthlyInstances(transaction: any, start: Date, end: Date, instances: TransactionInstance[]): void {
-  let currentDate = new Date(start);
+  const currentDate = new Date(start);
 
   // Adjust to the correct day of month
   if (transaction.monthlyMode === 'day' && transaction.dayOfMonth) {
