@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [ main, master, develop ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -31,6 +38,7 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
+        cache: 'npm'
 
     - name: Install dependencies
       if: steps.check-package.outputs.exists == 'true'
@@ -50,11 +58,12 @@ jobs:
 
     - name: Upload coverage reports
       if: steps.check-package.outputs.exists == 'true' && matrix.node-version == '20.x'
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
       with:
-        file: ./coverage/coverage-final.json
+        files: ./coverage/coverage-final.json
         flags: unittests
         name: codecov-umbrella
+        fail_ci_if_error: false
 
     - name: Build
       if: steps.check-package.outputs.exists == 'true'
@@ -72,35 +81,20 @@ jobs:
     needs: build-and-test
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
 
+    permissions:
+      contents: write
+
     steps:
     - uses: actions/checkout@v4
 
-    - name: Check for package.json
-      id: check-package
-      run: |
-        if [ -f "package.json" ]; then
-          echo "exists=true" >> $GITHUB_OUTPUT
-        else
-          echo "exists=false" >> $GITHUB_OUTPUT
-        fi
-
-    - name: Use Node.js 20.x
-      if: steps.check-package.outputs.exists == 'true'
-      uses: actions/setup-node@v4
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
       with:
-        node-version: 20.x
-
-    - name: Install dependencies
-      if: steps.check-package.outputs.exists == 'true'
-      run: npm ci
-
-    - name: Build
-      if: steps.check-package.outputs.exists == 'true'
-      run: npm run build
+        name: dist
+        path: dist/
 
     - name: Deploy to GitHub Pages
-      if: steps.check-package.outputs.exists == 'true'
-      uses: peaceiris/actions-gh-pages@v3
+      uses: peaceiris/actions-gh-pages@v4
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: ./dist
