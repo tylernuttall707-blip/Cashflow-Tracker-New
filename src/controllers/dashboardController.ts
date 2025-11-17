@@ -3,7 +3,7 @@
  * Handles the main dashboard tab with KPIs, balance chart, and upcoming transactions
  */
 
-import type { AppState, Adjustment, ProjectionResult } from '../types';
+import type { Adjustment, ProjectionResult } from '../types';
 import { fmtMoney } from '../modules/calculations';
 import { fromYMD } from '../modules/dateUtils';
 import { renderBalanceChart } from '../utils/chartUtils';
@@ -13,13 +13,6 @@ import { renderBalanceChart } from '../utils/chartUtils';
  */
 function $(sel: string, ctx: Document | HTMLElement = document): HTMLElement | null {
   return ctx.querySelector(sel);
-}
-
-/**
- * Generate unique ID
- */
-function uid(): string {
-  return Math.random().toString(36).slice(2, 9);
 }
 
 /**

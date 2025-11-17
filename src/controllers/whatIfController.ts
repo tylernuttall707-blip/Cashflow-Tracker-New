@@ -15,7 +15,6 @@ import type {
 import {
   evaluateWhatIfStream,
   buildWhatIfOverrides,
-  saveScenario,
 } from '../modules/whatif';
 import {
   sanitizeWhatIfState,
@@ -27,8 +26,22 @@ import {
 import { computeProjection, computeEffectiveAmount, round2, fmtMoney } from '../modules/calculations';
 import { renderWhatIfChart } from '../utils/chartUtils';
 import { estimateOccurrencesPerWeek } from '../modules/transactions';
-import { toYMD, fromYMD, compareYMD, fmtDate } from '../modules/dateUtils';
+import { toYMD, fromYMD, compareYMD } from '../modules/dateUtils';
 import { isValidYMDString } from '../modules/validation';
+
+/**
+ * Format date for display
+ */
+function fmtDate(ymd: string): string {
+  if (!ymd) return '';
+  try {
+    const d = fromYMD(ymd);
+    if (!(d instanceof Date) || Number.isNaN(d.getTime())) return ymd;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return ymd;
+  }
+}
 
 /**
  * Sale entry UI state
@@ -226,19 +239,25 @@ const ensureSaleUIState = (entry: SaleEntry): SaleUIState | null => {
 };
 
 /**
- * Schedule a What-If render using requestAnimationFrame
+ * Create a scheduleRender function with bound state accessors
  */
-export const scheduleWhatIfRender = (): void => {
-  if (whatIfRenderPending) return;
-  whatIfRenderPending = true;
-  const raf =
-    typeof requestAnimationFrame === 'function'
-      ? requestAnimationFrame
-      : (cb: FrameRequestCallback) => setTimeout(cb, 0);
-  raf(() => {
-    whatIfRenderPending = false;
-    renderWhatIf();
-  });
+const createScheduleRender = (
+  getState: () => AppState,
+  getScenario: () => WhatIfState,
+  saveCallback: (state: WhatIfState) => void
+) => {
+  return (): void => {
+    if (whatIfRenderPending) return;
+    whatIfRenderPending = true;
+    const raf =
+      typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame
+        : (cb: FrameRequestCallback) => setTimeout(cb, 0);
+    raf(() => {
+      whatIfRenderPending = false;
+      renderWhatIf(getState(), getScenario(), saveCallback);
+    });
+  };
 };
 
 /**
@@ -623,7 +642,7 @@ const renderStreams = (streamInfo: StreamDisplayInfo[]): void => {
  */
 const renderSaleConfiguration = (
   saleTweaks: { enabled: boolean; entries: SaleEntry[] },
-  startDate: YMDString
+  _startDate: YMDString
 ): void => {
   const saleEnabledEl = $<HTMLInputElement>('#whatifSaleEnabled');
   if (saleEnabledEl) saleEnabledEl.checked = Boolean(saleTweaks.enabled);
@@ -961,6 +980,9 @@ export const bindWhatIf = (
   setScenario: (scenario: WhatIfState) => void,
   saveCallback: (scenario: WhatIfState) => void
 ): void => {
+  // Create bound scheduleRender function
+  const scheduleWhatIfRender = createScheduleRender(getState, getScenario, saveCallback);
+
   // Pull from actual
   $('#whatifPullBtn')?.addEventListener('click', () => {
     const state = getState();
@@ -1083,10 +1105,10 @@ export const bindWhatIf = (
   const deltaInput = $<HTMLInputElement>('#whatifGlobalDelta');
   deltaInput?.addEventListener('change', (e) => {
     const scenario = getScenario();
-    const global = getGlobalTweaks();
-    const value = clampCurrency((e.target as HTMLInputElement).value, global.delta);
-    global.delta = value;
-    global.lastEdited = 'delta';
+    const tweaks = getGlobalTweaks();
+    const value = clampCurrency(Number((e.target as HTMLInputElement).value), tweaks.delta);
+    tweaks.delta = value;
+    tweaks.lastEdited = 'delta';
     saveCallback(scenario);
     scheduleWhatIfRender();
   });
@@ -1127,7 +1149,6 @@ export const bindWhatIf = (
     const entry = ensureWhatIfStreamTweak(scenario, streamId);
     const stream =
       getStreamById(scenario.base, streamId) || getStreamById(getState(), streamId);
-    const global = getGlobalTweaks();
     let changed = false;
     if (role === 'pctInput' || role === 'pctSlider') {
       const pct = clampPercent(Number((target as HTMLInputElement).value) / 100, {
@@ -1141,7 +1162,7 @@ export const bindWhatIf = (
       entry.weeklyTarget = null;
       changed = true;
     } else if (role === 'deltaInput') {
-      const delta = clampCurrency((target as HTMLInputElement).value, entry.delta);
+      const delta = clampCurrency(Number((target as HTMLInputElement).value), entry.delta);
       entry.delta = delta;
       entry.lastEdited = 'delta';
       entry.effective = null;
@@ -1382,7 +1403,7 @@ export const bindWhatIf = (
         max: 5,
         fallback: entry.pct,
       });
-      const topup = clampCurrency(draft.topup, entry.topup);
+      const topup = clampCurrency(Number(draft.topup), entry.topup);
       let startDate = isValidYMDString(draft.startDate)
         ? draft.startDate
         : entry.startDate;

@@ -27,7 +27,7 @@ import {
   normalizeStreamSteps,
   hasValidRecurrenceWindow,
 } from '../modules/transactions';
-import type { IncomeStream, Transaction, Step, NthWeek } from '../types';
+import type { IncomeStream, Transaction, Step } from '../types';
 
 describe('transactions module', () => {
   describe('toWeekdayArray', () => {
@@ -756,8 +756,8 @@ describe('transactions module', () => {
     });
 
     it('should handle invalid entries', () => {
-      expect(describeNameAndCategory(null, 'Fallback')).toBe('Fallback');
-      expect(describeNameAndCategory(undefined, 'Fallback')).toBe('Fallback');
+      expect(describeNameAndCategory(null as any, 'Fallback')).toBe('Fallback');
+      expect(describeNameAndCategory(undefined as any, 'Fallback')).toBe('Fallback');
     });
   });
 
@@ -1136,12 +1136,6 @@ describe('transactions module', () => {
     });
 
     it('should handle multiple weekdays in biweekly', () => {
-      const stream = {
-        frequency: 'biweekly',
-        startDate: '2024-01-01',
-        endDate: '2024-12-31',
-        dayOfWeek: [1, 3, 5], // Mon, Wed, Fri
-      };
       const anchor = new Date(2024, 0, 1); // Monday
       const wed2WeeksLater = new Date(2024, 0, 17);
       expect(matchesBiweekly(wed2WeeksLater, [1, 3, 5], anchor)).toBe(true);

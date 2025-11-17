@@ -4,7 +4,7 @@
  */
 
 import type { ProjectionResult, YMDString } from '../types';
-import { round2, fmtMoney } from '../modules/calculations';
+import { round2 } from '../modules/calculations';
 import { compareYMD } from '../modules/dateUtils';
 
 declare const Chart: any;
