@@ -18,7 +18,7 @@ interface AISuggestionsProps {
 }
 
 export function AISuggestions({ state, projection, onApplySuggestion }: AISuggestionsProps) {
-  const addScenario = useAppStore((s) => s.addScenario);
+  const addScenario = useAppStore((s: any) => s.addScenario);
 
   const [suggestions, setSuggestions] = useState<ScenarioSuggestion[]>([]);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
@@ -39,7 +39,7 @@ export function AISuggestions({ state, projection, onApplySuggestion }: AISugges
     }
     // Mark as applied
     setSuggestions(
-      suggestions.map((s) =>
+      suggestions.map((s: any) =>
         s.id === suggestion.id ? { ...s, appliedToScenarioId: scenario.id } : s
       )
     );
@@ -231,13 +231,13 @@ export function AISuggestions({ state, projection, onApplySuggestion }: AISugges
             <div>
               <span className="text-gray-600">Applied:</span>
               <span className="ml-2 font-medium">
-                {suggestions.filter((s) => s.appliedToScenarioId).length}
+                {suggestions.filter((s: any) => s.appliedToScenarioId).length}
               </span>
             </div>
             <div>
               <span className="text-gray-600">High priority:</span>
               <span className="ml-2 font-medium text-red-700">
-                {suggestions.filter((s) => s.priority === 'high').length}
+                {suggestions.filter((s: any) => s.priority === 'high').length}
               </span>
             </div>
             <div>

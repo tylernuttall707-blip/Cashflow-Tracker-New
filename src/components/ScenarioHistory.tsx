@@ -3,7 +3,7 @@
  */
 
 import { useState } from 'react';
-import type { Scenario, ScenarioVersion, AppState } from '../types';
+import type { Scenario, ScenarioVersion } from '../types';
 import { useAppStore } from '../store/useAppStore';
 import { compareVersions, getVersionDiffSummary } from '../modules/scenarioEngine';
 
@@ -14,10 +14,10 @@ interface ScenarioHistoryProps {
 }
 
 export function ScenarioHistory({ scenario, onClose, onViewDiff }: ScenarioHistoryProps) {
-  const getScenarioVersions = useAppStore((state) => state.getScenarioVersions);
-  const restoreScenarioVersion = useAppStore((state) => state.restoreScenarioVersion);
-  const deleteScenarioVersion = useAppStore((state) => state.deleteScenarioVersion);
-  const saveScenarioVersion = useAppStore((state) => state.saveScenarioVersion);
+  const getScenarioVersions = useAppStore((state: any) => state.getScenarioVersions);
+  const restoreScenarioVersion = useAppStore((state: any) => state.restoreScenarioVersion);
+  const deleteScenarioVersion = useAppStore((state: any) => state.deleteScenarioVersion);
+  const saveScenarioVersion = useAppStore((state: any) => state.saveScenarioVersion);
 
   const versions = getScenarioVersions(scenario.id);
   const [selectedVersions, setSelectedVersions] = useState<string[]>([]);
@@ -26,7 +26,7 @@ export function ScenarioHistory({ scenario, onClose, onViewDiff }: ScenarioHisto
 
   const handleVersionSelect = (versionId: string) => {
     if (selectedVersions.includes(versionId)) {
-      setSelectedVersions(selectedVersions.filter((id) => id !== versionId));
+      setSelectedVersions(selectedVersions.filter((id: string) => id !== versionId));
     } else {
       if (selectedVersions.length >= 2) {
         setSelectedVersions([selectedVersions[1], versionId]);
@@ -242,7 +242,7 @@ export function ScenarioHistory({ scenario, onClose, onViewDiff }: ScenarioHisto
             </p>
             <textarea
               value={versionNotes}
-              onChange={(e) => setVersionNotes(e.target.value)}
+              onChange={(e: any) => setVersionNotes(e.target.value)}
               placeholder="Version notes (optional)"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               rows={3}

@@ -18,7 +18,7 @@ import {
   exportSummaryCSV,
   type ComparisonExportData,
 } from '../modules/exportComparison';
-import type { Scenario, ProjectionResult, AppState } from '../types';
+import type { Scenario, ProjectionResult } from '../types';
 
 type ViewMode = 'editor' | 'comparison';
 

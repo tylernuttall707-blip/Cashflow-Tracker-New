@@ -57,7 +57,7 @@ export function ConditionalBuilder({
   };
 
   const handleRemoveCondition = (index: number) => {
-    setConditions(conditions.filter((_, i) => i !== index));
+    setConditions(conditions.filter((_: any, i: number) => i !== index));
   };
 
   const handleSave = () => {
@@ -131,7 +131,7 @@ export function ConditionalBuilder({
             <input
               type="text"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e: any) => setDescription(e.target.value)}
               placeholder="e.g., Reduce expenses if balance is low"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
@@ -143,7 +143,7 @@ export function ConditionalBuilder({
               type="checkbox"
               id="enabled"
               checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
+              onChange={(e: any) => setEnabled(e.target.checked)}
               className="rounded"
             />
             <label htmlFor="enabled" className="text-sm font-medium text-gray-700">
@@ -170,13 +170,13 @@ export function ConditionalBuilder({
               </div>
             ) : (
               <div className="space-y-3">
-                {conditions.map((condition, index) => (
+                {conditions.map((condition: any, index: number) => (
                   <div key={condition.id} className="border border-gray-200 rounded-lg p-4">
                     {index > 0 && (
                       <div className="mb-3">
                         <select
                           value={logicalOperator}
-                          onChange={(e) => setLogicalOperator(e.target.value as LogicalOperator)}
+                          onChange={(e: any) => setLogicalOperator(e.target.value as LogicalOperator)}
                           className="px-3 py-1 border border-gray-300 rounded bg-gray-50 text-sm font-medium"
                         >
                           <option value="AND">AND</option>
@@ -192,7 +192,7 @@ export function ConditionalBuilder({
                         </label>
                         <select
                           value={condition.type}
-                          onChange={(e) =>
+                          onChange={(e: any) =>
                             handleUpdateCondition(index, {
                               type: e.target.value as Condition['type'],
                             })
@@ -213,7 +213,7 @@ export function ConditionalBuilder({
                         </label>
                         <select
                           value={condition.operator}
-                          onChange={(e) =>
+                          onChange={(e: any) =>
                             handleUpdateCondition(index, {
                               operator: e.target.value as ConditionalOperator,
                             })
@@ -236,7 +236,7 @@ export function ConditionalBuilder({
                           <input
                             type="number"
                             value={condition.value}
-                            onChange={(e) =>
+                            onChange={(e: any) =>
                               handleUpdateCondition(index, {
                                 value: parseFloat(e.target.value) || 0,
                               })
@@ -278,7 +278,7 @@ export function ConditionalBuilder({
                 </label>
                 <select
                   value={changeType}
-                  onChange={(e) => setChangeType(e.target.value as ScenarioChange['type'])}
+                  onChange={(e: any) => setChangeType(e.target.value as ScenarioChange['type'])}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                 >
                   {changeTypes.map((type) => (
@@ -296,7 +296,7 @@ export function ConditionalBuilder({
                 <input
                   type="text"
                   value={changeDescription}
-                  onChange={(e) => setChangeDescription(e.target.value)}
+                  onChange={(e: any) => setChangeDescription(e.target.value)}
                   placeholder="e.g., Reduce expenses by 10%"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                 />
@@ -310,7 +310,7 @@ export function ConditionalBuilder({
                   <input
                     type="number"
                     value={percentChange}
-                    onChange={(e) => setPercentChange(parseFloat(e.target.value) || 0)}
+                    onChange={(e: any) => setPercentChange(parseFloat(e.target.value) || 0)}
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-lg"
                   />
                   <span className="text-gray-600">%</span>
@@ -328,7 +328,7 @@ export function ConditionalBuilder({
               <h4 className="font-semibold text-gray-900 mb-2">Summary</h4>
               <p className="text-sm text-gray-700">
                 <strong>IF</strong>{' '}
-                {conditions.map((condition, index) => (
+                {conditions.map((condition: any, index: number) => (
                   <span key={condition.id}>
                     {index > 0 && <strong> {logicalOperator} </strong>}
                     {conditionTypes.find((t) => t.value === condition.type)?.label}{' '}
