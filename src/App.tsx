@@ -13,6 +13,7 @@ import {
   IncomePlan,
   Receivables,
   AllTransactions,
+  TimelineView,
   AIInsights,
   type TabId,
 } from './components';
@@ -87,6 +88,7 @@ function App() {
         {activeTab === 'dashboard' && <Dashboard />}
         {activeTab === 'whatif' && <WhatIf />}
         {activeTab === 'transactions' && <AllTransactions />}
+        {activeTab === 'timeline' && <TimelineView />}
         {activeTab === 'movements' && <CashMovements />}
         {activeTab === 'income' && <IncomePlan />}
         {activeTab === 'receivables' && <Receivables />}

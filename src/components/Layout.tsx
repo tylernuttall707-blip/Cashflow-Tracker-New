@@ -10,7 +10,7 @@ interface LayoutProps {
   onExportSnapshotPDF: () => void;
 }
 
-export type TabId = 'dashboard' | 'whatif' | 'transactions' | 'movements' | 'income' | 'receivables' | 'ai-insights';
+export type TabId = 'dashboard' | 'whatif' | 'transactions' | 'movements' | 'income' | 'receivables' | 'timeline' | 'ai-insights';
 
 export function Layout({ children, onExportJSON, onImportJSON, onExportPDF, onExportSnapshotPDF }: LayoutProps) {
   return (
@@ -52,6 +52,7 @@ export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'whatif', label: 'What-If' },
     { id: 'transactions', label: 'All Transactions' },
+    { id: 'timeline', label: 'Timeline' },
     { id: 'movements', label: 'Cash Movements' },
     { id: 'income', label: 'Income Plan' },
     { id: 'receivables', label: 'Receivables (AR)' },
