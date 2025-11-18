@@ -6,9 +6,17 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { ScenarioList } from './ScenarioList';
 import { ScenarioEditor } from './ScenarioEditor';
+import { ComparisonChart } from './ComparisonChart';
+import { DifferenceHeatmap } from './DifferenceHeatmap';
 import { computeProjection, fmtMoney } from '../modules/calculations';
 import { computeScenarioProjection } from '../modules/scenarioEngine';
 import { fromYMD } from '../modules/dateUtils';
+import {
+  exportComparisonCSV,
+  exportComparisonJSON,
+  exportSummaryCSV,
+  type ComparisonExportData,
+} from '../modules/exportComparison';
 import type { Scenario, ProjectionResult } from '../types';
 
 type ViewMode = 'editor' | 'comparison';
@@ -111,6 +119,78 @@ export function Scenarios() {
     });
   };
 
+  const handleExportCSV = () => {
+    if (!baselineProjection || comparisonScenarios.length === 0) {
+      alert('Please select at least one scenario to export');
+      return;
+    }
+
+    const exportData: ComparisonExportData = {
+      exportDate: new Date().toISOString(),
+      baseline: baselineProjection,
+      scenarios: comparisonScenarios
+        .map((id) => {
+          const scenario = scenarios?.find((s) => s.id === id);
+          const projection = scenarioProjections[id];
+          if (scenario && projection) {
+            return { scenario, projection };
+          }
+          return null;
+        })
+        .filter((item): item is { scenario: Scenario; projection: ProjectionResult } => item !== null),
+    };
+
+    exportComparisonCSV(exportData);
+  };
+
+  const handleExportJSON = () => {
+    if (!baselineProjection || comparisonScenarios.length === 0) {
+      alert('Please select at least one scenario to export');
+      return;
+    }
+
+    const exportData: ComparisonExportData = {
+      exportDate: new Date().toISOString(),
+      baseline: baselineProjection,
+      scenarios: comparisonScenarios
+        .map((id) => {
+          const scenario = scenarios?.find((s) => s.id === id);
+          const projection = scenarioProjections[id];
+          if (scenario && projection) {
+            return { scenario, projection };
+          }
+          return null;
+        })
+        .filter((item): item is { scenario: Scenario; projection: ProjectionResult } => item !== null),
+    };
+
+    exportComparisonJSON(exportData);
+  };
+
+  const handleExportSummary = () => {
+    if (!baselineProjection || comparisonScenarios.length === 0) {
+      alert('Please select at least one scenario to export');
+      return;
+    }
+
+    const exportData: ComparisonExportData = {
+      exportDate: new Date().toISOString(),
+      baseline: baselineProjection,
+      scenarios: comparisonScenarios
+        .map((id) => {
+          const scenario = scenarios?.find((s) => s.id === id);
+          const projection = scenarioProjections[id];
+          if (scenario && projection) {
+            return { scenario, projection };
+          }
+          return null;
+        })
+        .filter((item): item is { scenario: Scenario; projection: ProjectionResult } => item !== null),
+    };
+
+    exportSummaryCSV(exportData);
+  };
+
   const fmtDate = (ymd: string): string => {
     if (!ymd) return '';
     try {
@@ -191,8 +271,38 @@ export function Scenarios() {
                 </div>
               </div>
 
-              {/* Comparison Results */}
+              {/* Export Buttons */}
               {comparisonScenarios.length > 0 && (
+                <div className="comparison-export-toolbar">
+                  <h3>Export Comparison Report</h3>
+                  <div className="export-buttons">
+                    <button
+                      className="btn btn-sm btn-outline"
+                      onClick={handleExportSummary}
+                      title="Export summary metrics only"
+                    >
+                      📊 Export Summary CSV
+                    </button>
+                    <button
+                      className="btn btn-sm btn-outline"
+                      onClick={handleExportCSV}
+                      title="Export detailed comparison with daily data"
+                    >
+                      📄 Export Full CSV
+                    </button>
+                    <button
+                      className="btn btn-sm btn-outline"
+                      onClick={handleExportJSON}
+                      title="Export raw data as JSON"
+                    >
+                      💾 Export JSON
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Comparison Results */}
+              {comparisonScenarios.length > 0 && baselineProjection && (
                 <>
                   {/* Key Metrics Comparison */}
                   <div className="comparison-metrics">
@@ -267,6 +377,28 @@ export function Scenarios() {
                         })}
                       </tbody>
                     </table>
+                  </div>
+
+                  {/* Balance Projection Chart */}
+                  <div className="comparison-chart-section">
+                    <ComparisonChart
+                      baselineProjection={baselineProjection}
+                      scenarioProjections={scenarioProjections}
+                      scenarios={scenarios || []}
+                      selectedScenarioIds={comparisonScenarios}
+                      days={90}
+                    />
+                  </div>
+
+                  {/* Difference Heatmap */}
+                  <div className="comparison-heatmap-section">
+                    <DifferenceHeatmap
+                      baselineProjection={baselineProjection}
+                      scenarioProjections={scenarioProjections}
+                      scenarios={scenarios || []}
+                      selectedScenarioIds={comparisonScenarios}
+                      days={30}
+                    />
                   </div>
 
                   {/* Daily Comparison Table */}
