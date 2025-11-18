@@ -2,8 +2,8 @@
  * ScenarioHistory - Component for viewing and managing scenario version history
  */
 
-import React, { useState } from 'react';
-import type { Scenario, ScenarioVersion } from '../types';
+import { useState } from 'react';
+import type { Scenario, ScenarioVersion, AppState } from '../types';
 import { useAppStore } from '../store/useAppStore';
 import { compareVersions, getVersionDiffSummary } from '../modules/scenarioEngine';
 
@@ -14,10 +14,10 @@ interface ScenarioHistoryProps {
 }
 
 export function ScenarioHistory({ scenario, onClose, onViewDiff }: ScenarioHistoryProps) {
-  const getScenarioVersions = useAppStore((state) => state.getScenarioVersions);
-  const restoreScenarioVersion = useAppStore((state) => state.restoreScenarioVersion);
-  const deleteScenarioVersion = useAppStore((state) => state.deleteScenarioVersion);
-  const saveScenarioVersion = useAppStore((state) => state.saveScenarioVersion);
+  const getScenarioVersions = useAppStore((state: AppState) => state.getScenarioVersions);
+  const restoreScenarioVersion = useAppStore((state: AppState) => state.restoreScenarioVersion);
+  const deleteScenarioVersion = useAppStore((state: AppState) => state.deleteScenarioVersion);
+  const saveScenarioVersion = useAppStore((state: AppState) => state.saveScenarioVersion);
 
   const versions = getScenarioVersions(scenario.id);
   const [selectedVersions, setSelectedVersions] = useState<string[]>([]);
@@ -57,8 +57,8 @@ export function ScenarioHistory({ scenario, onClose, onViewDiff }: ScenarioHisto
 
   const handleCompare = () => {
     if (selectedVersions.length === 2) {
-      const v1 = versions.find((v) => v.id === selectedVersions[0]);
-      const v2 = versions.find((v) => v.id === selectedVersions[1]);
+      const v1 = versions.find((v: ScenarioVersion) => v.id === selectedVersions[0]);
+      const v2 = versions.find((v: ScenarioVersion) => v.id === selectedVersions[1]);
       if (v1 && v2 && onViewDiff) {
         // Order by version number
         const [older, newer] = v1.versionNumber < v2.versionNumber ? [v1, v2] : [v2, v1];
@@ -129,7 +129,7 @@ export function ScenarioHistory({ scenario, onClose, onViewDiff }: ScenarioHisto
             </div>
           ) : (
             <div className="space-y-3">
-              {versions.map((version, index) => {
+              {versions.map((version: ScenarioVersion, index: number) => {
                 const isLatest = index === 0;
                 const isSelected = selectedVersions.includes(version.id);
                 const prevVersion = versions[index + 1];
@@ -192,7 +192,7 @@ export function ScenarioHistory({ scenario, onClose, onViewDiff }: ScenarioHisto
                             {version.tags && version.tags.length > 0 && (
                               <span className="ml-3">
                                 Tags:{' '}
-                                {version.tags.map((tag) => (
+                                {version.tags.map((tag: string) => (
                                   <span
                                     key={tag}
                                     className="inline-block px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded ml-1"

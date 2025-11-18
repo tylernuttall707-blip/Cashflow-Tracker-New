@@ -13,7 +13,6 @@ import type {
   VersionDiff,
   ScenarioVersionHistory,
   Condition,
-  ConditionalChange,
   AdvancedTemplate,
   DateRange,
 } from '../types';
@@ -823,7 +822,6 @@ export function applyConditionalChanges(
  * @returns Array of seasonal templates
  */
 export function getSeasonalTemplates(): AdvancedTemplate[] {
-  const now = new Date().toISOString();
   const currentYear = new Date().getFullYear();
 
   return [
@@ -867,11 +865,11 @@ export function getSeasonalTemplates(): AdvancedTemplate[] {
           changes: {
             newTransaction: {
               id: uid(),
-              description: 'Tax preparation',
+              name: 'Tax preparation',
               amount: -500,
-              isRecurring: false,
               date: `${currentYear}-03-15`,
               category: 'Services',
+              type: 'expense',
             },
           },
         },
@@ -896,11 +894,11 @@ export function getSeasonalTemplates(): AdvancedTemplate[] {
           changes: {
             newTransaction: {
               id: uid(),
-              description: 'Summer vacation',
+              name: 'Summer vacation',
               amount: -3000,
-              isRecurring: false,
               date: `${currentYear}-07-15`,
               category: 'Travel',
+              type: 'expense',
             },
           },
         },
@@ -925,11 +923,11 @@ export function getSeasonalTemplates(): AdvancedTemplate[] {
           changes: {
             newTransaction: {
               id: uid(),
-              description: 'School expenses',
+              name: 'School expenses',
               amount: -800,
-              isRecurring: false,
               date: `${currentYear}-08-15`,
               category: 'Education',
+              type: 'expense',
             },
           },
         },

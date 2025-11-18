@@ -2,7 +2,7 @@
  * ConditionalBuilder - Component for building conditional scenario changes
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import type {
   Condition,
   ConditionalChange,

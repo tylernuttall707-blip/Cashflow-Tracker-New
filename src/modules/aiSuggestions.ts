@@ -8,7 +8,6 @@ import type {
   ProjectionResult,
   ScenarioSuggestion,
   FinancialPattern,
-  ScenarioChange,
   Scenario,
 } from '../types';
 
@@ -61,13 +60,13 @@ export function detectFinancialPatterns(
   });
 
   // Pattern 2: Declining balance
-  if (projection.daily.length > 30) {
+  if (projection.cal.length > 30) {
     const first30DayAvg =
-      projection.daily.slice(0, 30).reduce((sum, day) => sum + day.balance, 0) / 30;
+      projection.cal.slice(0, 30).reduce((sum: number, day) => sum + day.running, 0) / 30;
     const last30DayAvg =
-      projection.daily
+      projection.cal
         .slice(-30)
-        .reduce((sum, day) => sum + day.balance, 0) / 30;
+        .reduce((sum: number, day) => sum + day.running, 0) / 30;
 
     const decline = first30DayAvg - last30DayAvg;
     const declinePercentage = (decline / first30DayAvg) * 100;
@@ -152,8 +151,7 @@ export function detectFinancialPatterns(
 export function generateScenarioSuggestions(
   state: AppState,
   projection: ProjectionResult,
-  patterns: FinancialPattern[],
-  existingScenarios: Scenario[] = []
+  patterns: FinancialPattern[]
 ): ScenarioSuggestion[] {
   const suggestions: ScenarioSuggestion[] = [];
 
@@ -180,7 +178,6 @@ export function generateScenarioSuggestions(
           targetId: pattern.affectedCategory,
           changes: {
             percentChange: -reductionPercent,
-            category: pattern.affectedCategory,
           },
         },
       ],
@@ -239,11 +236,11 @@ export function generateScenarioSuggestions(
           changes: {
             newTransaction: {
               id: uid(),
-              description: 'Emergency fund boost',
+              name: 'Emergency fund boost',
               amount: 2000,
-              isRecurring: false,
               date: new Date().toISOString().split('T')[0],
               category: 'Savings',
+              type: 'expense',
             },
           },
         },
@@ -283,7 +280,7 @@ export function generateScenarioSuggestions(
   }
 
   // Suggestion 5: General optimization - balanced approach
-  if (projection.lowestBalance && projection.lowestBalance < state.startingBalance * 0.5) {
+  if (projection.lowestBalance && projection.lowestBalance < state.settings.startingBalance * 0.5) {
     suggestions.push({
       id: uid(),
       type: 'optimization',
@@ -316,8 +313,8 @@ export function generateScenarioSuggestions(
 
   // Suggestion 6: Opportunity - if doing well
   if (
-    projection.endBalance > state.startingBalance * 1.2 &&
-    projection.lowestBalance > state.startingBalance
+    projection.endBalance > state.settings.startingBalance * 1.2 &&
+    projection.lowestBalance > state.settings.startingBalance
   ) {
     suggestions.push({
       id: uid(),
@@ -333,12 +330,11 @@ export function generateScenarioSuggestions(
           changes: {
             newTransaction: {
               id: uid(),
-              description: 'Investment contribution',
+              name: 'Investment contribution',
               amount: -500,
-              isRecurring: true,
-              frequency: 'monthly',
               date: new Date().toISOString().split('T')[0],
               category: 'Investment',
+              type: 'expense',
             },
           },
         },

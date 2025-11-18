@@ -10,7 +10,7 @@ import { VersionDiffViewer } from './VersionDiffViewer';
 import { ConditionalBuilder } from './ConditionalBuilder';
 import { computeScenarioProjection, validateScenarioChange } from '../modules/scenarioEngine';
 import { fmtMoney } from '../modules/calculations';
-import type { Scenario, ScenarioChange, ProjectionResult, ScenarioVersion, ConditionalChange } from '../types';
+import type { Scenario, ScenarioChange, ProjectionResult, ScenarioVersion } from '../types';
 
 interface ScenarioEditorProps {
   scenario: Scenario | null;
@@ -27,7 +27,6 @@ export function ScenarioEditor({ scenario }: ScenarioEditorProps) {
     incomeStreams,
     expandedTransactions,
     addConditionalChange,
-    removeConditionalChange,
   } = useAppStore();
 
   const [showChangeBuilder, setShowChangeBuilder] = useState(false);

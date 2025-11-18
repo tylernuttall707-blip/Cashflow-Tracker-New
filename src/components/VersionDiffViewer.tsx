@@ -2,8 +2,7 @@
  * VersionDiffViewer - Component to show differences between two scenario versions
  */
 
-import React from 'react';
-import type { ScenarioVersion, VersionDiff } from '../types';
+import type { ScenarioVersion } from '../types';
 import { compareVersions } from '../modules/scenarioEngine';
 
 interface VersionDiffViewerProps {

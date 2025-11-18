@@ -550,19 +550,19 @@ export const useAppStore = create<AppStore>()(
         });
       },
 
-      getScenarioVersions: (scenarioId) => {
+      getScenarioVersions: (scenarioId: string) => {
         const state = useAppStore.getState();
         return (state.scenarioVersions || [])
-          .filter((v) => v.scenarioId === scenarioId)
-          .sort((a, b) => b.versionNumber - a.versionNumber);
+          .filter((v: ScenarioVersion) => v.scenarioId === scenarioId)
+          .sort((a: ScenarioVersion, b: ScenarioVersion) => b.versionNumber - a.versionNumber);
       },
 
-      deleteScenarioVersion: (scenarioId, versionId) => {
+      deleteScenarioVersion: (_scenarioId: string, versionId: string) => {
         set((state) => {
           const newState = {
             ...state,
             scenarioVersions: (state.scenarioVersions || []).filter(
-              (v) => v.id !== versionId
+              (v: ScenarioVersion) => v.id !== versionId
             ),
           };
           saveState(newState);
@@ -571,7 +571,7 @@ export const useAppStore = create<AppStore>()(
       },
 
       // Phase 4: Conditional scenario actions
-      addConditionalChange: (scenarioId, conditionalChange) => {
+      addConditionalChange: (scenarioId: string, conditionalChange: ConditionalChange) => {
         set((state) => {
           const newState = {
             ...state,
@@ -590,7 +590,7 @@ export const useAppStore = create<AppStore>()(
         });
       },
 
-      removeConditionalChange: (scenarioId, conditionalChangeId) => {
+      removeConditionalChange: (scenarioId: string, conditionalChangeId: string) => {
         set((state) => {
           const newState = {
             ...state,
@@ -599,7 +599,7 @@ export const useAppStore = create<AppStore>()(
                 ? {
                     ...s,
                     conditionalChanges: (s.conditionalChanges || []).filter(
-                      (c) => c.id !== conditionalChangeId
+                      (c: ConditionalChange) => c.id !== conditionalChangeId
                     ),
                     updatedAt: new Date().toISOString(),
                   }
@@ -611,7 +611,7 @@ export const useAppStore = create<AppStore>()(
         });
       },
 
-      updateConditionalChange: (scenarioId, conditionalChangeId, updates) => {
+      updateConditionalChange: (scenarioId: string, conditionalChangeId: string, updates: Partial<ConditionalChange>) => {
         set((state) => {
           const newState = {
             ...state,
@@ -619,7 +619,7 @@ export const useAppStore = create<AppStore>()(
               s.id === scenarioId
                 ? {
                     ...s,
-                    conditionalChanges: (s.conditionalChanges || []).map((c) =>
+                    conditionalChanges: (s.conditionalChanges || []).map((c: ConditionalChange) =>
                       c.id === conditionalChangeId ? { ...c, ...updates } : c
                     ),
                     updatedAt: new Date().toISOString(),
@@ -633,7 +633,7 @@ export const useAppStore = create<AppStore>()(
       },
 
       // Global actions
-      importData: (data) => {
+      importData: (data: Partial<AppState>) => {
         set((state) => {
           const newState = {
             ...state,

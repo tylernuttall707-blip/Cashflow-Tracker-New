@@ -2,7 +2,7 @@
  * AISuggestions - Component to display AI-generated scenario suggestions
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import type { AppState, ProjectionResult, ScenarioSuggestion, Scenario } from '../types';
 import { useAppStore } from '../store/useAppStore';
 import {
@@ -18,8 +18,8 @@ interface AISuggestionsProps {
 }
 
 export function AISuggestions({ state, projection, onApplySuggestion }: AISuggestionsProps) {
-  const scenarios = useAppStore((state) => state.scenarios || []);
-  const addScenario = useAppStore((state) => state.addScenario);
+  const scenarios = useAppStore((s: AppState) => s.scenarios || []);
+  const addScenario = useAppStore((s: AppState) => s.addScenario);
 
   const [suggestions, setSuggestions] = useState<ScenarioSuggestion[]>([]);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
