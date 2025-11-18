@@ -77,9 +77,15 @@ const getInitialState = (): AppState => {
   try {
     const loaded = loadState();
     if (loaded) {
+      const defaultState = getDefaultState();
       const merged = {
-        ...getDefaultState(),
+        ...defaultState,
         ...loaded,
+        // Deep merge the ui object to ensure all properties exist
+        ui: {
+          ...defaultState.ui,
+          ...loaded.ui,
+        },
       };
       // Perform migration if needed
       const migrated = performMigrationIfNeeded(merged);

@@ -13,7 +13,8 @@ export function AllTransactions() {
     setExpandedSort,
   } = useAppStore();
 
-  const expandedSort = ui.expandedSort;
+  // Ensure expandedSort has a default value if undefined
+  const expandedSort = ui.expandedSort || { key: 'date' as ExpandedSortKey, direction: 'asc' as const };
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
