@@ -18,8 +18,8 @@ interface AISuggestionsProps {
 }
 
 export function AISuggestions({ state, projection, onApplySuggestion }: AISuggestionsProps) {
-  const scenarios = useAppStore((s: AppState) => s.scenarios || []);
-  const addScenario = useAppStore((s: AppState) => s.addScenario);
+  const scenarios = useAppStore((s) => s.scenarios || []);
+  const addScenario = useAppStore((s) => s.addScenario);
 
   const [suggestions, setSuggestions] = useState<ScenarioSuggestion[]>([]);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
@@ -28,9 +28,9 @@ export function AISuggestions({ state, projection, onApplySuggestion }: AISugges
   useEffect(() => {
     // Generate suggestions based on current state
     const patterns = detectFinancialPatterns(state, projection);
-    const newSuggestions = generateScenarioSuggestions(state, projection, patterns, scenarios);
+    const newSuggestions = generateScenarioSuggestions(state, projection, patterns);
     setSuggestions(newSuggestions);
-  }, [state, projection, scenarios]);
+  }, [state, projection]);
 
   const handleApply = (suggestion: ScenarioSuggestion) => {
     const scenario = applySuggestionToScenario(suggestion);
@@ -51,12 +51,12 @@ export function AISuggestions({ state, projection, onApplySuggestion }: AISugges
   };
 
   const visibleSuggestions = suggestions.filter(
-    (s) => !dismissedSuggestions.has(s.id) && !s.appliedToScenarioId
+    (s: ScenarioSuggestion) => !dismissedSuggestions.has(s.id) && !s.appliedToScenarioId
   );
 
-  const priorityOrder = { high: 0, medium: 1, low: 2 };
+  const priorityOrder: Record<ScenarioSuggestion['priority'], number> = { high: 0, medium: 1, low: 2 };
   const sortedSuggestions = [...visibleSuggestions].sort(
-    (a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]
+    (a: ScenarioSuggestion, b: ScenarioSuggestion) => priorityOrder[a.priority] - priorityOrder[b.priority]
   );
 
   const getPriorityColor = (priority: ScenarioSuggestion['priority']) => {

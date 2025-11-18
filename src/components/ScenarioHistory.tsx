@@ -14,10 +14,10 @@ interface ScenarioHistoryProps {
 }
 
 export function ScenarioHistory({ scenario, onClose, onViewDiff }: ScenarioHistoryProps) {
-  const getScenarioVersions = useAppStore((state: AppState) => state.getScenarioVersions);
-  const restoreScenarioVersion = useAppStore((state: AppState) => state.restoreScenarioVersion);
-  const deleteScenarioVersion = useAppStore((state: AppState) => state.deleteScenarioVersion);
-  const saveScenarioVersion = useAppStore((state: AppState) => state.saveScenarioVersion);
+  const getScenarioVersions = useAppStore((state) => state.getScenarioVersions);
+  const restoreScenarioVersion = useAppStore((state) => state.restoreScenarioVersion);
+  const deleteScenarioVersion = useAppStore((state) => state.deleteScenarioVersion);
+  const saveScenarioVersion = useAppStore((state) => state.saveScenarioVersion);
 
   const versions = getScenarioVersions(scenario.id);
   const [selectedVersions, setSelectedVersions] = useState<string[]>([]);
