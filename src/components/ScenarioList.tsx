@@ -17,8 +17,8 @@ export function ScenarioList({ onSelectScenario, selectedScenarioId }: ScenarioL
   const [showArchived, setShowArchived] = useState(false);
 
   // Filter scenarios based on archived status
-  const activeScenarios = (scenarios || []).filter((s) => !s.isArchived);
-  const archivedScenarios = (scenarios || []).filter((s) => s.isArchived);
+  const activeScenarios = (scenarios || []).filter((s: Scenario) => !s.isArchived);
+  const archivedScenarios = (scenarios || []).filter((s: Scenario) => s.isArchived);
   const displayedScenarios = showArchived ? archivedScenarios : activeScenarios;
 
   const handleCreateFromTemplate = (templateName: 'conservative' | 'aggressive' | 'worst-case' | 'cost-cutting') => {
@@ -142,7 +142,7 @@ export function ScenarioList({ onSelectScenario, selectedScenarioId }: ScenarioL
             {showArchived ? 'No archived scenarios' : 'No scenarios yet. Create one to get started!'}
           </div>
         ) : (
-          displayedScenarios.map((scenario) => (
+          displayedScenarios.map((scenario: Scenario) => (
             <div
               key={scenario.id}
               className={`scenario-item ${selectedScenarioId === scenario.id ? 'active' : ''}`}

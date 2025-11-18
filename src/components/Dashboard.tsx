@@ -266,7 +266,7 @@ export function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {adjustments.map((adj) => (
+              {adjustments.map((adj: Adjustment) => (
                 <tr key={adj.date}>
                   <td>{fmtDate(adj.date)}</td>
                   <td>{fmtMoney(adj.amount)}</td>

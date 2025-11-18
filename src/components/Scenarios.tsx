@@ -87,7 +87,7 @@ export function Scenarios() {
     };
 
     comparisonScenarios.forEach((scenarioId) => {
-      const scenario = (scenarios || []).find((s) => s.id === scenarioId);
+      const scenario = (scenarios || []).find((s: Scenario) => s.id === scenarioId);
       if (scenario) {
         try {
           projections[scenarioId] = computeScenarioProjection(baseState, scenario);
@@ -131,7 +131,7 @@ export function Scenarios() {
       baseline: baselineProjection,
       scenarios: comparisonScenarios
         .map((id) => {
-          const scenario = scenarios?.find((s) => s.id === id);
+          const scenario = scenarios?.find((s: Scenario) => s.id === id);
           const projection = scenarioProjections[id];
           if (scenario && projection) {
             return { scenario, projection };
@@ -155,7 +155,7 @@ export function Scenarios() {
       baseline: baselineProjection,
       scenarios: comparisonScenarios
         .map((id) => {
-          const scenario = scenarios?.find((s) => s.id === id);
+          const scenario = scenarios?.find((s: Scenario) => s.id === id);
           const projection = scenarioProjections[id];
           if (scenario && projection) {
             return { scenario, projection };
@@ -179,7 +179,7 @@ export function Scenarios() {
       baseline: baselineProjection,
       scenarios: comparisonScenarios
         .map((id) => {
-          const scenario = scenarios?.find((s) => s.id === id);
+          const scenario = scenarios?.find((s: Scenario) => s.id === id);
           const projection = scenarioProjections[id];
           if (scenario && projection) {
             return { scenario, projection };
@@ -202,7 +202,7 @@ export function Scenarios() {
     }
   };
 
-  const activeScenarios = (scenarios || []).filter((s) => !s.isArchived);
+  const activeScenarios = (scenarios || []).filter((s: Scenario) => !s.isArchived);
 
   return (
     <section id="scenarios" className="tab-panel active scenarios-layout">
@@ -252,7 +252,7 @@ export function Scenarios() {
               <div className="comparison-scenario-selector">
                 <h3>Select Scenarios to Compare (max 5)</h3>
                 <div className="scenario-checkboxes">
-                  {activeScenarios.map((scenario) => (
+                  {activeScenarios.map((scenario: Scenario) => (
                     <label key={scenario.id} className="scenario-checkbox">
                       <input
                         type="checkbox"
@@ -361,7 +361,7 @@ export function Scenarios() {
 
                         {/* Scenarios */}
                         {comparisonScenarios.map((scenarioId) => {
-                          const scenario = (scenarios || []).find((s) => s.id === scenarioId);
+                          const scenario = (scenarios || []).find((s: Scenario) => s.id === scenarioId);
                           const projection = scenarioProjections[scenarioId];
 
                           if (!scenario || !projection) return null;

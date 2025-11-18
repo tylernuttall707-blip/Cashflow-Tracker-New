@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { computeProjection, fmtMoney } from '../modules/calculations';
 import { fromYMD } from '../modules/dateUtils';
-import type { ProjectionResult, WhatIfTweaks } from '../types';
+import type { ProjectionResult, WhatIfTweaks, IncomeStream } from '../types';
 
 export function WhatIf() {
   const { settings, adjustments, oneOffs, incomeStreams } = useAppStore();
@@ -52,7 +52,7 @@ export function WhatIf() {
   useEffect(() => {
     try {
       // Apply global tweaks to income streams
-      const tweakedStreams = incomeStreams.map((stream) => {
+      const tweakedStreams = incomeStreams.map((stream: IncomeStream) => {
         const streamTweak = tweaks.streams[stream.id];
         let multiplier = 1;
 

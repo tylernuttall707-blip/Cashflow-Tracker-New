@@ -24,8 +24,8 @@ export function AllTransactions() {
   const [editForm, setEditForm] = useState<Partial<ExpandedTransaction>>({});
 
   // Get unique source types for filter
-  const sourceTypes = useMemo(() => {
-    const types = new Set(expandedTransactions.map(tx => tx.sourceType));
+  const sourceTypes = useMemo((): string[] => {
+    const types = new Set(expandedTransactions.map((tx: ExpandedTransaction) => tx.sourceType));
     return Array.from(types).sort();
   }, [expandedTransactions]);
 

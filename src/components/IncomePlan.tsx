@@ -253,7 +253,7 @@ export function IncomePlan() {
             </tr>
           </thead>
           <tbody>
-            {incomeStreams.map((stream) => (
+            {incomeStreams.map((stream: IncomeStream) => (
               <tr key={stream.id}>
                 <td>{stream.name}</td>
                 <td>{stream.category}</td>

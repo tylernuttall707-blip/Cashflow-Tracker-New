@@ -45,26 +45,26 @@ export function CashMovements() {
   const [showUpcomingDays, setShowUpcomingDays] = useState(7);
 
   // Get categories for autocomplete
-  const categories = useMemo(() => {
-    const cats = new Set(expandedTransactions.map(tx => tx.category));
+  const categories = useMemo((): string[] => {
+    const cats = new Set(expandedTransactions.map((tx: ExpandedTransaction) => tx.category));
     return Array.from(cats).sort();
   }, [expandedTransactions]);
 
   // Get names for autocomplete
-  const names = useMemo(() => {
-    const nameSet = new Set(expandedTransactions.map(tx => tx.name));
+  const names = useMemo((): string[] => {
+    const nameSet = new Set(expandedTransactions.map((tx: ExpandedTransaction) => tx.name));
     return Array.from(nameSet).sort();
   }, [expandedTransactions]);
 
   // Get upcoming transactions (next N days)
-  const upcomingTransactions = useMemo(() => {
+  const upcomingTransactions = useMemo((): ExpandedTransaction[] => {
     const endDate = new Date();
     endDate.setDate(endDate.getDate() + showUpcomingDays);
     const endDateStr = toYMD(endDate);
 
     return expandedTransactions
-      .filter(tx => tx.date >= today && tx.date <= endDateStr)
-      .sort((a, b) => {
+      .filter((tx: ExpandedTransaction) => tx.date >= today && tx.date <= endDateStr)
+      .sort((a: ExpandedTransaction, b: ExpandedTransaction) => {
         const dateCompare = a.date.localeCompare(b.date);
         if (dateCompare !== 0) return dateCompare;
         return a.name.localeCompare(b.name);
@@ -74,7 +74,7 @@ export function CashMovements() {
   // Group transactions by date
   const groupedUpcoming = useMemo(() => {
     const groups: Record<string, ExpandedTransaction[]> = {};
-    upcomingTransactions.forEach(tx => {
+    upcomingTransactions.forEach((tx: ExpandedTransaction) => {
       if (!groups[tx.date]) {
         groups[tx.date] = [];
       }
@@ -223,7 +223,7 @@ export function CashMovements() {
                 required
               />
               <datalist id="names-list">
-                {names.map(name => (
+                {names.map((name: string) => (
                   <option key={name} value={name} />
                 ))}
               </datalist>
@@ -240,7 +240,7 @@ export function CashMovements() {
                 required
               />
               <datalist id="categories-list">
-                {categories.map(cat => (
+                {categories.map((cat: string) => (
                   <option key={cat} value={cat} />
                 ))}
               </datalist>
