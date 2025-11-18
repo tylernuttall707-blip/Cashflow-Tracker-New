@@ -199,6 +199,8 @@ export interface AppState {
   incomeStreams: IncomeStream[];       // Legacy - kept for backward compatibility
   expandedTransactions: ExpandedTransaction[];  // New source of truth
   ui: UIState;
+  scenarios?: Scenario[];              // Optional for backward compatibility
+  activeScenarioId?: string | null;   // null = baseline/actual, undefined = not initialized
 }
 
 /**
@@ -298,6 +300,100 @@ export interface WhatIfTweaks {
 export interface WhatIfState {
   base: AppState;
   tweaks: WhatIfTweaks;
+}
+
+/**
+ * Scenario change types - what can be modified in a scenario
+ */
+export type ScenarioChangeType =
+  | "transaction_add"      // Add new transaction
+  | "transaction_remove"   // Remove existing transaction
+  | "transaction_modify"   // Modify amount/date/frequency
+  | "income_adjust"        // Adjust income stream
+  | "expense_adjust"       // Adjust expense categories
+  | "setting_override"     // Override settings (dates, starting balance)
+  | "bulk_adjustment";     // Percentage adjustment to category/type
+
+/**
+ * Target type for scenario changes
+ */
+export type ScenarioTargetType = "transaction" | "income" | "expense" | "category" | "setting";
+
+/**
+ * Individual change within a scenario
+ */
+export interface ScenarioChange {
+  id: string;
+  type: ScenarioChangeType;
+  description: string;      // Human-readable: "Increase rent by 10%"
+
+  // Reference to what's being changed
+  targetId?: string;         // Transaction/stream ID being affected
+  targetType?: ScenarioTargetType;
+
+  // Change details (flexible object based on type)
+  changes: {
+    // For transaction modifications
+    amount?: number;
+    amountMultiplier?: number;  // 1.1 = +10%
+    date?: YMDString;
+    frequency?: Frequency;
+
+    // For new transactions
+    newTransaction?: Partial<ExpandedTransaction>;
+
+    // For bulk adjustments
+    categoryFilter?: string;
+    typeFilter?: TransactionType;
+    percentChange?: number;
+
+    // For setting overrides
+    startDate?: YMDString;
+    endDate?: YMDString;
+    startingBalance?: number;
+  };
+}
+
+/**
+ * Scenario definition
+ */
+export interface Scenario {
+  id: string;
+  name: string;
+  description?: string;
+  color: string;            // For visual distinction in charts
+
+  // Timestamps
+  createdAt: string;        // ISO timestamp
+  updatedAt: string;        // ISO timestamp
+
+  // Changes from baseline
+  changes: ScenarioChange[];
+
+  // Cached projection (optional, for performance)
+  cachedProjection?: ProjectionResult;
+  lastCalculated?: string;  // ISO timestamp
+
+  // Metadata
+  tags?: string[];          // e.g., ["best-case", "Q4-2025"]
+  isArchived?: boolean;
+  notes?: string;           // Markdown supported
+}
+
+/**
+ * Scenario comparison result
+ */
+export interface ScenarioComparison {
+  scenarios: Scenario[];
+  projections: Record<string, ProjectionResult>;  // scenario.id -> projection
+
+  // Comparative metrics
+  comparativeMetrics: {
+    endBalanceRange: [number, number];
+    avgEndBalance: number;
+    lowestBalanceRange: [number, number];
+    runwayRange: [number | null, number | null];
+  };
 }
 
 /**

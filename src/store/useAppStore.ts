@@ -4,7 +4,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AppState, Settings, Adjustment, Transaction, IncomeStream, OneOffSortState, ExpandedTransaction, ExpandedSortState } from '../types';
+import type { AppState, Settings, Adjustment, Transaction, IncomeStream, OneOffSortState, ExpandedTransaction, ExpandedSortState, Scenario, ScenarioChange } from '../types';
 import { loadState, saveState } from '../modules/storage';
 import { performMigrationIfNeeded } from '../modules/migration';
 
@@ -39,6 +39,18 @@ interface AppStore extends AppState {
   removeExpandedTransactions: (ids: string[]) => void;  // Bulk delete
   setExpandedTransactions: (transactions: ExpandedTransaction[]) => void;
 
+  // Actions for scenarios
+  addScenario: (scenario: Scenario) => void;
+  updateScenario: (id: string, updates: Partial<Scenario>) => void;
+  removeScenario: (id: string) => void;
+  duplicateScenario: (id: string, newName: string) => void;
+  setActiveScenario: (id: string | null) => void;
+  addChangeToScenario: (scenarioId: string, change: ScenarioChange) => void;
+  removeChangeFromScenario: (scenarioId: string, changeId: string) => void;
+  updateChangeInScenario: (scenarioId: string, changeId: string, updates: Partial<ScenarioChange>) => void;
+  archiveScenario: (id: string) => void;
+  restoreScenario: (id: string) => void;
+
   // Global actions
   importData: (data: Partial<AppState>) => void;
   resetToDefaults: () => void;
@@ -69,6 +81,8 @@ const getDefaultState = (): AppState => {
         direction: 'asc',
       },
     },
+    scenarios: [],
+    activeScenarioId: null,
   };
 };
 
@@ -86,6 +100,9 @@ const getInitialState = (): AppState => {
           ...defaultState.ui,
           ...loaded.ui,
         },
+        // Ensure scenarios array exists
+        scenarios: loaded.scenarios || [],
+        activeScenarioId: loaded.activeScenarioId !== undefined ? loaded.activeScenarioId : null,
       };
       // Perform migration if needed
       const migrated = performMigrationIfNeeded(merged);
@@ -298,6 +315,179 @@ export const useAppStore = create<AppStore>()(
           const newState = {
             ...state,
             expandedTransactions: transactions,
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      // Scenario actions
+      addScenario: (scenario) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            scenarios: [...(state.scenarios || []), scenario],
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      updateScenario: (id, updates) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            scenarios: (state.scenarios || []).map((s) =>
+              s.id === id
+                ? { ...s, ...updates, updatedAt: new Date().toISOString() }
+                : s
+            ),
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      removeScenario: (id) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            scenarios: (state.scenarios || []).filter((s) => s.id !== id),
+            // Reset active scenario if it was deleted
+            activeScenarioId: state.activeScenarioId === id ? null : state.activeScenarioId,
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      duplicateScenario: (id, newName) => {
+        set((state) => {
+          const scenario = (state.scenarios || []).find((s) => s.id === id);
+          if (!scenario) return state;
+
+          const now = new Date().toISOString();
+          const duplicate: Scenario = {
+            ...scenario,
+            id: crypto.randomUUID(),
+            name: newName,
+            createdAt: now,
+            updatedAt: now,
+            cachedProjection: undefined,
+            lastCalculated: undefined,
+          };
+
+          const newState = {
+            ...state,
+            scenarios: [...(state.scenarios || []), duplicate],
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      setActiveScenario: (id) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            activeScenarioId: id,
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      addChangeToScenario: (scenarioId, change) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            scenarios: (state.scenarios || []).map((s) =>
+              s.id === scenarioId
+                ? {
+                    ...s,
+                    changes: [...s.changes, change],
+                    updatedAt: new Date().toISOString(),
+                    cachedProjection: undefined,
+                    lastCalculated: undefined,
+                  }
+                : s
+            ),
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      removeChangeFromScenario: (scenarioId, changeId) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            scenarios: (state.scenarios || []).map((s) =>
+              s.id === scenarioId
+                ? {
+                    ...s,
+                    changes: s.changes.filter((c) => c.id !== changeId),
+                    updatedAt: new Date().toISOString(),
+                    cachedProjection: undefined,
+                    lastCalculated: undefined,
+                  }
+                : s
+            ),
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      updateChangeInScenario: (scenarioId, changeId, updates) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            scenarios: (state.scenarios || []).map((s) =>
+              s.id === scenarioId
+                ? {
+                    ...s,
+                    changes: s.changes.map((c) =>
+                      c.id === changeId ? { ...c, ...updates } : c
+                    ),
+                    updatedAt: new Date().toISOString(),
+                    cachedProjection: undefined,
+                    lastCalculated: undefined,
+                  }
+                : s
+            ),
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      archiveScenario: (id) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            scenarios: (state.scenarios || []).map((s) =>
+              s.id === id
+                ? { ...s, isArchived: true, updatedAt: new Date().toISOString() }
+                : s
+            ),
+            // Reset active scenario if it was archived
+            activeScenarioId: state.activeScenarioId === id ? null : state.activeScenarioId,
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      restoreScenario: (id) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            scenarios: (state.scenarios || []).map((s) =>
+              s.id === id
+                ? { ...s, isArchived: false, updatedAt: new Date().toISOString() }
+                : s
+            ),
           };
           saveState(newState);
           return newState;
