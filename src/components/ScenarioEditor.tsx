@@ -5,9 +5,12 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { ChangeBuilder } from './ChangeBuilder';
+import { ScenarioHistory } from './ScenarioHistory';
+import { VersionDiffViewer } from './VersionDiffViewer';
+import { ConditionalBuilder } from './ConditionalBuilder';
 import { computeScenarioProjection, validateScenarioChange } from '../modules/scenarioEngine';
 import { fmtMoney } from '../modules/calculations';
-import type { Scenario, ScenarioChange, ProjectionResult } from '../types';
+import type { Scenario, ScenarioChange, ProjectionResult, ScenarioVersion } from '../types';
 
 interface ScenarioEditorProps {
   scenario: Scenario | null;
@@ -23,9 +26,13 @@ export function ScenarioEditor({ scenario }: ScenarioEditorProps) {
     oneOffs,
     incomeStreams,
     expandedTransactions,
+    addConditionalChange,
   } = useAppStore();
 
   const [showChangeBuilder, setShowChangeBuilder] = useState(false);
+  const [showConditionalBuilder, setShowConditionalBuilder] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [versionDiffView, setVersionDiffView] = useState<{from: ScenarioVersion; to: ScenarioVersion} | null>(null);
   const [projection, setProjection] = useState<ProjectionResult | null>(null);
 
   // Local state for editing scenario metadata
@@ -271,12 +278,28 @@ export function ScenarioEditor({ scenario }: ScenarioEditorProps) {
       <div className="card scenario-changes">
         <div className="card-header">
           <h3>Changes ({scenario.changes.length})</h3>
-          <button
-            onClick={() => setShowChangeBuilder(true)}
-            className="btn btn-primary"
-          >
-            + Add Change
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              onClick={() => setShowChangeBuilder(true)}
+              className="btn btn-primary"
+            >
+              + Add Change
+            </button>
+            <button
+              onClick={() => setShowConditionalBuilder(true)}
+              className="btn btn-outline"
+              title="Add conditional change"
+            >
+              + Conditional
+            </button>
+            <button
+              onClick={() => setShowVersionHistory(true)}
+              className="btn btn-outline"
+              title="View version history"
+            >
+              📜 History
+            </button>
+          </div>
         </div>
 
         {scenario.changes.length === 0 ? (
@@ -338,6 +361,38 @@ export function ScenarioEditor({ scenario }: ScenarioEditorProps) {
             />
           </div>
         </div>
+      )}
+
+      {/* Conditional Builder Modal */}
+      {showConditionalBuilder && (
+        <ConditionalBuilder
+          onSave={(conditionalChange) => {
+            addConditionalChange(scenario.id, conditionalChange);
+            setShowConditionalBuilder(false);
+          }}
+          onCancel={() => setShowConditionalBuilder(false)}
+        />
+      )}
+
+      {/* Version History Modal */}
+      {showVersionHistory && (
+        <ScenarioHistory
+          scenario={scenario}
+          onClose={() => setShowVersionHistory(false)}
+          onViewDiff={(from, to) => {
+            setVersionDiffView({ from, to });
+            setShowVersionHistory(false);
+          }}
+        />
+      )}
+
+      {/* Version Diff Viewer */}
+      {versionDiffView && (
+        <VersionDiffViewer
+          fromVersion={versionDiffView.from}
+          toVersion={versionDiffView.to}
+          onClose={() => setVersionDiffView(null)}
+        />
       )}
     </div>
   );

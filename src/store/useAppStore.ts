@@ -4,9 +4,10 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AppState, Settings, Adjustment, Transaction, IncomeStream, OneOffSortState, ExpandedTransaction, ExpandedSortState, Scenario, ScenarioChange } from '../types';
+import type { AppState, Settings, Adjustment, Transaction, IncomeStream, OneOffSortState, ExpandedTransaction, ExpandedSortState, Scenario, ScenarioChange, ScenarioVersion, ConditionalChange } from '../types';
 import { loadState, saveState } from '../modules/storage';
 import { performMigrationIfNeeded } from '../modules/migration';
+import { createScenarioVersion, restoreScenarioFromVersion } from '../modules/scenarioEngine';
 
 interface AppStore extends AppState {
   // Actions for settings
@@ -51,6 +52,17 @@ interface AppStore extends AppState {
   archiveScenario: (id: string) => void;
   restoreScenario: (id: string) => void;
 
+  // Phase 4: Version management actions
+  saveScenarioVersion: (scenarioId: string, notes?: string) => void;
+  restoreScenarioVersion: (scenarioId: string, versionId: string) => void;
+  getScenarioVersions: (scenarioId: string) => ScenarioVersion[];
+  deleteScenarioVersion: (scenarioId: string, versionId: string) => void;
+
+  // Phase 4: Conditional scenario actions
+  addConditionalChange: (scenarioId: string, conditionalChange: ConditionalChange) => void;
+  removeConditionalChange: (scenarioId: string, conditionalChangeId: string) => void;
+  updateConditionalChange: (scenarioId: string, conditionalChangeId: string, updates: Partial<ConditionalChange>) => void;
+
   // Global actions
   importData: (data: Partial<AppState>) => void;
   resetToDefaults: () => void;
@@ -83,6 +95,7 @@ const getDefaultState = (): AppState => {
     },
     scenarios: [],
     activeScenarioId: null,
+    scenarioVersions: [],
   };
 };
 
@@ -494,8 +507,133 @@ export const useAppStore = create<AppStore>()(
         });
       },
 
+      // Phase 4: Version management actions
+      saveScenarioVersion: (scenarioId, notes) => {
+        set((state) => {
+          const scenario = (state.scenarios || []).find((s) => s.id === scenarioId);
+          if (!scenario) return state;
+
+          const version = createScenarioVersion(scenario, notes);
+          const newScenarios = (state.scenarios || []).map((s) =>
+            s.id === scenarioId
+              ? { ...s, currentVersionNumber: version.versionNumber }
+              : s
+          );
+
+          const newState = {
+            ...state,
+            scenarios: newScenarios,
+            scenarioVersions: [...(state.scenarioVersions || []), version],
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      restoreScenarioVersion: (scenarioId, versionId) => {
+        set((state) => {
+          const version = (state.scenarioVersions || []).find((v) => v.id === versionId);
+          const scenario = (state.scenarios || []).find((s) => s.id === scenarioId);
+
+          if (!version || !scenario) return state;
+
+          const restoredScenario = restoreScenarioFromVersion(scenario, version);
+
+          const newState = {
+            ...state,
+            scenarios: (state.scenarios || []).map((s) =>
+              s.id === scenarioId ? restoredScenario : s
+            ),
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      getScenarioVersions: (scenarioId: string) => {
+        const state = useAppStore.getState();
+        return (state.scenarioVersions || [])
+          .filter((v: ScenarioVersion) => v.scenarioId === scenarioId)
+          .sort((a: ScenarioVersion, b: ScenarioVersion) => b.versionNumber - a.versionNumber);
+      },
+
+      deleteScenarioVersion: (_scenarioId: string, versionId: string) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            scenarioVersions: (state.scenarioVersions || []).filter(
+              (v: ScenarioVersion) => v.id !== versionId
+            ),
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      // Phase 4: Conditional scenario actions
+      addConditionalChange: (scenarioId: string, conditionalChange: ConditionalChange) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            scenarios: (state.scenarios || []).map((s) =>
+              s.id === scenarioId
+                ? {
+                    ...s,
+                    conditionalChanges: [...(s.conditionalChanges || []), conditionalChange],
+                    updatedAt: new Date().toISOString(),
+                  }
+                : s
+            ),
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      removeConditionalChange: (scenarioId: string, conditionalChangeId: string) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            scenarios: (state.scenarios || []).map((s) =>
+              s.id === scenarioId
+                ? {
+                    ...s,
+                    conditionalChanges: (s.conditionalChanges || []).filter(
+                      (c: ConditionalChange) => c.id !== conditionalChangeId
+                    ),
+                    updatedAt: new Date().toISOString(),
+                  }
+                : s
+            ),
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      updateConditionalChange: (scenarioId: string, conditionalChangeId: string, updates: Partial<ConditionalChange>) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            scenarios: (state.scenarios || []).map((s) =>
+              s.id === scenarioId
+                ? {
+                    ...s,
+                    conditionalChanges: (s.conditionalChanges || []).map((c: ConditionalChange) =>
+                      c.id === conditionalChangeId ? { ...c, ...updates } : c
+                    ),
+                    updatedAt: new Date().toISOString(),
+                  }
+                : s
+            ),
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
       // Global actions
-      importData: (data) => {
+      importData: (data: Partial<AppState>) => {
         set((state) => {
           const newState = {
             ...state,
