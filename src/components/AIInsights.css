@@ -1,0 +1,372 @@
+/* ============================================================================
+   AI Insights Component Styles
+   ============================================================================ */
+
+.ai-insights-container {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.ai-insights-header {
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.ai-insights-header h1 {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+  color: #1a1a1a;
+}
+
+.ai-insights-subtitle {
+  font-size: 1.1rem;
+  color: #666;
+  margin: 0;
+}
+
+/* ============================================================================
+   Category Filters
+   ============================================================================ */
+
+.category-filters {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.filter-btn {
+  padding: 0.75rem 1.5rem;
+  border: 2px solid #e0e0e0;
+  background: white;
+  border-radius: 25px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  color: #333;
+}
+
+.filter-btn:hover {
+  border-color: #4a90e2;
+  background: #f0f7ff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.filter-btn.active {
+  background: #4a90e2;
+  border-color: #4a90e2;
+  color: white;
+  box-shadow: 0 4px 12px rgba(74, 144, 226, 0.3);
+}
+
+/* ============================================================================
+   Insight Sections
+   ============================================================================ */
+
+.insights-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.insight-section {
+  background: #f9f9f9;
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.insight-section-title {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+  color: #1a1a1a;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.insight-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ============================================================================
+   Insight Cards
+   ============================================================================ */
+
+.insight-card {
+  background: white;
+  border-radius: 8px;
+  padding: 1.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+  border-left: 4px solid #ccc;
+}
+
+.insight-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  transform: translateY(-2px);
+}
+
+.insight-card.insight-high {
+  border-left-color: #e74c3c;
+}
+
+.insight-card.insight-medium {
+  border-left-color: #f39c12;
+}
+
+.insight-card.insight-low {
+  border-left-color: #27ae60;
+}
+
+/* ============================================================================
+   Insight Header
+   ============================================================================ */
+
+.insight-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.insight-icons {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 1.5rem;
+}
+
+.insight-type-icon,
+.insight-severity-icon {
+  display: inline-block;
+  cursor: help;
+}
+
+.insight-title-section {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.insight-title {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.insight-category-badge {
+  background: #e0e0e0;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #555;
+}
+
+.insight-expand-btn {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: #666;
+  padding: 0.5rem;
+  transition: transform 0.2s ease;
+}
+
+.insight-expand-btn:hover {
+  color: #4a90e2;
+}
+
+/* ============================================================================
+   Insight Description
+   ============================================================================ */
+
+.insight-description {
+  margin: 1rem 0 0 0;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #333;
+}
+
+/* ============================================================================
+   Insight Details (Expanded)
+   ============================================================================ */
+
+.insight-details {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.insight-action {
+  background: #e8f4fd;
+  padding: 1rem;
+  border-radius: 6px;
+  border-left: 3px solid #4a90e2;
+}
+
+.insight-action strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #2c3e50;
+}
+
+.insight-action p {
+  margin: 0;
+  color: #34495e;
+  line-height: 1.5;
+}
+
+.insight-impact {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: #fff3cd;
+  border-radius: 6px;
+  border-left: 3px solid #f39c12;
+}
+
+.insight-impact strong {
+  color: #856404;
+}
+
+.impact-amount {
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #856404;
+}
+
+.insight-dates {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 3px solid #6c757d;
+}
+
+.insight-dates strong {
+  color: #495057;
+}
+
+.insight-dates span {
+  color: #6c757d;
+  font-family: monospace;
+  font-size: 0.95rem;
+}
+
+/* ============================================================================
+   No Insights / Empty States
+   ============================================================================ */
+
+.no-insights {
+  text-align: center;
+  padding: 4rem 2rem;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.no-insights-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.no-insights h2 {
+  color: #1a1a1a;
+  margin-bottom: 0.5rem;
+}
+
+.no-insights p {
+  color: #666;
+  font-size: 1.1rem;
+  max-width: 600px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.no-filtered-insights {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: #999;
+  font-size: 1.1rem;
+}
+
+/* ============================================================================
+   Responsive Design
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  .ai-insights-container {
+    padding: 1rem;
+  }
+
+  .ai-insights-header h1 {
+    font-size: 2rem;
+  }
+
+  .ai-insights-subtitle {
+    font-size: 1rem;
+  }
+
+  .category-filters {
+    gap: 0.5rem;
+  }
+
+  .filter-btn {
+    padding: 0.6rem 1.2rem;
+    font-size: 0.9rem;
+  }
+
+  .insight-card {
+    padding: 1rem;
+  }
+
+  .insight-title {
+    font-size: 1.1rem;
+  }
+
+  .insight-title-section {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .insight-details {
+    gap: 0.75rem;
+  }
+}
+
+/* ============================================================================
+   Print Styles
+   ============================================================================ */
+
+@media print {
+  .category-filters,
+  .insight-expand-btn {
+    display: none;
+  }
+
+  .insight-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .insight-details {
+    display: block !important;
+  }
+}

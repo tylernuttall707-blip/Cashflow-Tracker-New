@@ -13,6 +13,7 @@ import {
   IncomePlan,
   Receivables,
   AllTransactions,
+  AIInsights,
   type TabId,
 } from './components';
 import './App.css';
@@ -89,6 +90,7 @@ function App() {
         {activeTab === 'movements' && <CashMovements />}
         {activeTab === 'income' && <IncomePlan />}
         {activeTab === 'receivables' && <Receivables />}
+        {activeTab === 'ai-insights' && <AIInsights />}
       </main>
     </Layout>
   );
