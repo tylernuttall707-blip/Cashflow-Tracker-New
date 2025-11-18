@@ -9,6 +9,7 @@ import {
   TabNavigation,
   Dashboard,
   WhatIf,
+  Scenarios,
   CashMovements,
   IncomePlan,
   Receivables,
@@ -87,6 +88,7 @@ function App() {
       <main>
         {activeTab === 'dashboard' && <Dashboard />}
         {activeTab === 'whatif' && <WhatIf />}
+        {activeTab === 'scenarios' && <Scenarios />}
         {activeTab === 'transactions' && <AllTransactions />}
         {activeTab === 'timeline' && <TimelineView />}
         {activeTab === 'movements' && <CashMovements />}
