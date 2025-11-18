@@ -1129,6 +1129,188 @@ canvas { width: 100%; }
   color: var(--muted);
 }
 
+/* Phase 3: Export Toolbar */
+.comparison-export-toolbar {
+  margin: 20px 0;
+  padding: 16px;
+  background: var(--chip);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.comparison-export-toolbar h3 {
+  margin-top: 0;
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.export-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.export-buttons .btn {
+  font-size: 13px;
+}
+
+/* Phase 3: Comparison Chart */
+.comparison-chart-section {
+  margin-top: 24px;
+  padding: 20px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.comparison-chart-container {
+  height: 400px;
+  margin-top: 12px;
+}
+
+/* Phase 3: Difference Heatmap */
+.comparison-heatmap-section {
+  margin-top: 24px;
+}
+
+.difference-heatmap h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.heatmap-description {
+  font-size: 14px;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
+.heatmap-legend {
+  display: flex;
+  gap: 16px;
+  margin-left: 12px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.legend-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+.heatmap-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.heatmap-table th,
+.heatmap-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid var(--border);
+}
+
+.heatmap-table th {
+  font-weight: 600;
+  background: var(--chip);
+}
+
+.heatmap-cell {
+  text-align: right;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.heatmap-cell:hover {
+  opacity: 0.8;
+  transform: scale(1.02);
+}
+
+.heatmap-cell-content {
+  white-space: nowrap;
+}
+
+.heatmap-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* Heatmap Summary */
+.heatmap-summary {
+  margin-top: 24px;
+  padding: 16px;
+  background: var(--chip);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.heatmap-summary h4 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  font-size: 15px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.summary-card {
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.summary-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.summary-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.stat-label {
+  color: var(--muted);
+}
+
+.stat-value {
+  font-weight: 600;
+}
+
+.stat-value.positive {
+  color: #10b981;
+}
+
+.stat-value.negative {
+  color: #ef4444;
+}
+
 .scenario-projection-summary .kpis {
   margin-top: 12px;
 }
