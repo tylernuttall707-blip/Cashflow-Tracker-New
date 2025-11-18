@@ -11,3 +11,4 @@ export { IncomePlan } from './IncomePlan';
 export { Receivables } from './Receivables';
 export { AllTransactions } from './AllTransactions';
 export { TimelineView } from './TimelineView';
+export { AIInsights } from './AIInsights';
