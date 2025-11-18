@@ -124,9 +124,10 @@ export function ComparisonChart({
           },
           tooltip: {
             callbacks: {
-              label: (context) => {
+              label: (context: any) => {
                 const label = context.dataset.label || '';
                 const value = context.parsed.y;
+                if (value === null || value === undefined) return label;
                 return `${label}: $${value.toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
@@ -157,7 +158,7 @@ export function ComparisonChart({
               text: 'Balance ($)',
             },
             ticks: {
-              callback: (value) => {
+              callback: (value: any) => {
                 return '$' + (value as number).toLocaleString();
               },
             },
