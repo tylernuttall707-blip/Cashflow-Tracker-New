@@ -201,6 +201,7 @@ export interface AppState {
   ui: UIState;
   scenarios?: Scenario[];              // Optional for backward compatibility
   activeScenarioId?: string | null;   // null = baseline/actual, undefined = not initialized
+  scenarioVersions?: ScenarioVersion[];  // Phase 4: Version history for scenarios
 }
 
 /**
@@ -378,6 +379,16 @@ export interface Scenario {
   tags?: string[];          // e.g., ["best-case", "Q4-2025"]
   isArchived?: boolean;
   notes?: string;           // Markdown supported
+
+  // Phase 4: Version history
+  currentVersionNumber?: number;  // Current version number for this scenario
+
+  // Phase 4: Conditional scenarios
+  conditionalChanges?: ConditionalChange[];  // Changes that apply conditionally
+  triggers?: ScenarioTrigger[];              // Auto-triggered changes
+
+  // Phase 4: Date range (for time-bound scenarios)
+  dateRange?: DateRange;
 }
 
 /**
@@ -394,6 +405,156 @@ export interface ScenarioComparison {
     lowestBalanceRange: [number, number];
     runwayRange: [number | null, number | null];
   };
+}
+
+/**
+ * Scenario version snapshot
+ * Captures the state of a scenario at a specific point in time
+ */
+export interface ScenarioVersion {
+  id: string;                    // Unique version ID
+  scenarioId: string;            // Reference to parent scenario
+  timestamp: string;             // ISO timestamp when version was created
+  versionNumber: number;         // Sequential version number (1, 2, 3, ...)
+  name: string;                  // Scenario name at this version
+  description?: string;          // Description at this version
+  changes: ScenarioChange[];     // Snapshot of changes at this version
+  notes?: string;                // Version-specific notes (e.g., "Before Q4 review")
+  createdBy?: string;            // Optional user identifier
+  tags?: string[];               // Tags at this version
+}
+
+/**
+ * Difference between two scenario versions
+ */
+export interface VersionDiff {
+  fromVersion: ScenarioVersion;
+  toVersion: ScenarioVersion;
+
+  // Changes analysis
+  changesAdded: ScenarioChange[];       // Changes added in toVersion
+  changesRemoved: ScenarioChange[];     // Changes removed from fromVersion
+  changesModified: Array<{              // Changes that were modified
+    changeId: string;
+    oldChange: ScenarioChange;
+    newChange: ScenarioChange;
+  }>;
+
+  // Metadata changes
+  nameChanged: boolean;
+  descriptionChanged: boolean;
+  tagsChanged: boolean;
+}
+
+/**
+ * Version history for a scenario
+ */
+export interface ScenarioVersionHistory {
+  scenarioId: string;
+  versions: ScenarioVersion[];
+  currentVersionNumber: number;
+}
+
+/**
+ * Date range for time-bound scenario changes
+ */
+export interface DateRange {
+  startDate: YMDString;
+  endDate: YMDString;
+}
+
+/**
+ * Advanced template with date range support
+ */
+export interface AdvancedTemplate {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  changes: ScenarioChange[];
+  dateRange?: DateRange;         // Optional time bounds for the template
+  isSeasonal?: boolean;          // Indicates if this is a seasonal template
+  seasonalPeriod?: string;       // e.g., "Q4", "Holiday", "Tax Season"
+}
+
+/**
+ * Conditional logic operator
+ */
+export type ConditionalOperator = 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'greater_than_or_equal' | 'less_than_or_equal';
+
+/**
+ * Logical operator for combining conditions
+ */
+export type LogicalOperator = 'AND' | 'OR';
+
+/**
+ * Condition for conditional scenarios
+ */
+export interface Condition {
+  id: string;
+  type: 'balance' | 'income' | 'expense' | 'transaction_count' | 'date' | 'projection_day';
+  operator: ConditionalOperator;
+  value: number | string;        // Comparison value
+  description?: string;          // Human-readable description
+}
+
+/**
+ * Conditional change - applies ScenarioChange when conditions are met
+ */
+export interface ConditionalChange {
+  id: string;
+  conditions: Condition[];
+  logicalOperator: LogicalOperator;  // How to combine multiple conditions
+  change: ScenarioChange;            // The change to apply if conditions are met
+  description?: string;              // Description of what this does
+  enabled: boolean;                  // Can temporarily disable without removing
+}
+
+/**
+ * Trigger-based scenario - monitors state and applies changes automatically
+ */
+export interface ScenarioTrigger {
+  id: string;
+  name: string;
+  description?: string;
+  conditions: Condition[];
+  logicalOperator: LogicalOperator;
+  actions: ScenarioChange[];         // Changes to apply when triggered
+  triggerOnce: boolean;              // Only trigger the first time conditions are met
+  enabled: boolean;
+}
+
+/**
+ * AI-generated suggestion for scenario
+ */
+export interface ScenarioSuggestion {
+  id: string;
+  type: 'optimization' | 'risk_mitigation' | 'pattern_detected' | 'opportunity';
+  title: string;
+  description: string;
+  reasoning: string;                 // Why this suggestion was made
+  suggestedChanges: ScenarioChange[];
+  priority: 'low' | 'medium' | 'high';
+  estimatedImpact?: {
+    endBalanceChange?: number;
+    runwayChange?: number;
+  };
+  appliedToScenarioId?: string;      // If user applied this suggestion
+  dismissedAt?: string;              // ISO timestamp if user dismissed
+}
+
+/**
+ * Pattern detected in financial data
+ */
+export interface FinancialPattern {
+  id: string;
+  type: 'high_expenses' | 'low_income' | 'declining_balance' | 'irregular_income' | 'seasonal_variation';
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  description: string;
+  affectedCategory?: string;
+  affectedDateRange?: DateRange;
+  metrics: Record<string, number>;   // Supporting data for the pattern
 }
 
 /**

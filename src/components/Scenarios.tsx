@@ -8,6 +8,7 @@ import { ScenarioList } from './ScenarioList';
 import { ScenarioEditor } from './ScenarioEditor';
 import { ComparisonChart } from './ComparisonChart';
 import { DifferenceHeatmap } from './DifferenceHeatmap';
+import { AISuggestions } from './AISuggestions';
 import { computeProjection, fmtMoney } from '../modules/calculations';
 import { computeScenarioProjection } from '../modules/scenarioEngine';
 import { fromYMD } from '../modules/dateUtils';
@@ -17,7 +18,7 @@ import {
   exportSummaryCSV,
   type ComparisonExportData,
 } from '../modules/exportComparison';
-import type { Scenario, ProjectionResult } from '../types';
+import type { Scenario, ProjectionResult, AppState } from '../types';
 
 type ViewMode = 'editor' | 'comparison';
 
@@ -270,6 +271,31 @@ export function Scenarios() {
                   ))}
                 </div>
               </div>
+
+              {/* AI Suggestions */}
+              {baselineProjection && (
+                <div className="ai-suggestions-section" style={{ marginBottom: '2rem' }}>
+                  <AISuggestions
+                    state={{
+                      settings,
+                      adjustments,
+                      oneOffs,
+                      incomeStreams,
+                      expandedTransactions,
+                      scenarios: scenarios || [],
+                      activeScenarioId: null,
+                      ui: {
+                        oneOffSort: { key: 'date' as const, direction: 'asc' as const },
+                        expandedSort: { key: 'date' as const, direction: 'asc' as const },
+                      },
+                    }}
+                    projection={baselineProjection}
+                    onApplySuggestion={(scenario) => {
+                      handleSelectScenario(scenario);
+                    }}
+                  />
+                </div>
+              )}
 
               {/* Export Buttons */}
               {comparisonScenarios.length > 0 && (
