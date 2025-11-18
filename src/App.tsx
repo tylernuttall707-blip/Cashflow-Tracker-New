@@ -13,6 +13,7 @@ import {
   IncomePlan,
   Receivables,
   AllTransactions,
+  TimelineView,
   type TabId,
 } from './components';
 import './App.css';
@@ -86,6 +87,7 @@ function App() {
         {activeTab === 'dashboard' && <Dashboard />}
         {activeTab === 'whatif' && <WhatIf />}
         {activeTab === 'transactions' && <AllTransactions />}
+        {activeTab === 'timeline' && <TimelineView />}
         {activeTab === 'movements' && <CashMovements />}
         {activeTab === 'income' && <IncomePlan />}
         {activeTab === 'receivables' && <Receivables />}
