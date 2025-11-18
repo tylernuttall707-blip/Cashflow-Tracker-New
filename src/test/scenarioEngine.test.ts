@@ -347,8 +347,7 @@ describe('Scenario Engine', () => {
 
   describe('createScenarioTemplate', () => {
     it('should create conservative template', () => {
-      const baseState = createTestState();
-      const scenario = createScenarioTemplate('conservative', baseState);
+      const scenario = createScenarioTemplate('conservative');
 
       expect(scenario.name).toBe('Conservative');
       expect(scenario.changes).toHaveLength(2);
@@ -356,8 +355,7 @@ describe('Scenario Engine', () => {
     });
 
     it('should create aggressive template', () => {
-      const baseState = createTestState();
-      const scenario = createScenarioTemplate('aggressive', baseState);
+      const scenario = createScenarioTemplate('aggressive');
 
       expect(scenario.name).toBe('Aggressive Growth');
       expect(scenario.changes).toHaveLength(2);
@@ -365,8 +363,7 @@ describe('Scenario Engine', () => {
     });
 
     it('should create worst-case template', () => {
-      const baseState = createTestState();
-      const scenario = createScenarioTemplate('worst-case', baseState);
+      const scenario = createScenarioTemplate('worst-case');
 
       expect(scenario.name).toBe('Worst Case');
       expect(scenario.changes).toHaveLength(2);
@@ -374,8 +371,7 @@ describe('Scenario Engine', () => {
     });
 
     it('should create cost-cutting template', () => {
-      const baseState = createTestState();
-      const scenario = createScenarioTemplate('cost-cutting', baseState);
+      const scenario = createScenarioTemplate('cost-cutting');
 
       expect(scenario.name).toBe('Cost Cutting');
       expect(scenario.changes).toHaveLength(1);

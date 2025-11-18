@@ -9,7 +9,6 @@ import type {
   ScenarioChange,
   ProjectionResult,
   ExpandedTransaction,
-  TransactionType,
 } from '../types';
 
 /**
@@ -344,8 +343,7 @@ function applySettingOverride(
  * Create a scenario template with predefined changes
  */
 export function createScenarioTemplate(
-  templateName: 'conservative' | 'aggressive' | 'worst-case' | 'cost-cutting',
-  baseState: AppState
+  templateName: 'conservative' | 'aggressive' | 'worst-case' | 'cost-cutting'
 ): Scenario {
   const now = new Date().toISOString();
   const id = uid();
