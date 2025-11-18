@@ -18,7 +18,6 @@ interface AISuggestionsProps {
 }
 
 export function AISuggestions({ state, projection, onApplySuggestion }: AISuggestionsProps) {
-  const scenarios = useAppStore((s) => s.scenarios || []);
   const addScenario = useAppStore((s) => s.addScenario);
 
   const [suggestions, setSuggestions] = useState<ScenarioSuggestion[]>([]);
@@ -189,7 +188,7 @@ export function AISuggestions({ state, projection, onApplySuggestion }: AISugges
                       Proposed changes ({suggestion.suggestedChanges.length}):
                     </p>
                     <ul className="space-y-1">
-                      {suggestion.suggestedChanges.map((change, idx) => (
+                      {suggestion.suggestedChanges.map((change: any, idx: number) => (
                         <li key={idx} className="text-xs text-gray-700 flex items-start gap-2">
                           <span className="text-gray-400">•</span>
                           <span>{change.description || change.type}</span>
