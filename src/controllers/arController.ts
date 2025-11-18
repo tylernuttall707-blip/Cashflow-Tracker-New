@@ -140,6 +140,7 @@ const INVOICE_HEADER_CANDIDATES = [
   "ref",
   "arp invoice id",
   "arparinvoiceid",
+  "arpinvoiceid",  // Added: variant without "AR" prefix
 ];
 
 const DUE_HEADER_CANDIDATES = [
@@ -221,6 +222,7 @@ const uid = (): string => Math.random().toString(36).slice(2, 9);
  */
 const normalizeHeaderLabel = (value: unknown): string =>
   String(value ?? "")
+    .replace(/^\uFEFF/, "")  // Remove BOM (Byte Order Mark) if present
     .replace(/[\r\n]+/g, " ")
     .trim()
     .toLowerCase()
@@ -537,11 +539,17 @@ const parseARFile = (file: File): Promise<ParsedFileResult> =>
         skipEmptyLines: true,
         complete: (results: any) => {
           try {
-            const headers = (results.meta?.fields || []).map((h: any) => String(h ?? "").trim());
+            const rawHeaders = results.meta?.fields || [];
+            const headers = rawHeaders.map((h: any) => String(h ?? "").replace(/^\uFEFF/, "").trim());
             const firstField = headers[0];
             const rows = (results.data || [])
               .map((row: any) => {
-                const cleaned = { ...row };
+                // Normalize keys by trimming header names
+                const cleaned: Record<string, unknown> = {};
+                rawHeaders.forEach((rawHeader: any, idx: number) => {
+                  const trimmedHeader = headers[idx];
+                  cleaned[trimmedHeader] = row[rawHeader];
+                });
                 const allBlank = Object.values(cleaned).every(
                   (value) => value === null || value === undefined || String(value).trim() === ""
                 );
@@ -580,7 +588,7 @@ const parseARFile = (file: File): Promise<ParsedFileResult> =>
             return;
           }
           const headerIndex = rowsArray.indexOf(headerRow);
-          const headers = headerRow.map((cell) => String(cell ?? "").trim());
+          const headers = headerRow.map((cell) => String(cell ?? "").replace(/^\uFEFF/, "").trim());
           const dataRows = rowsArray.slice(headerIndex + 1);
           const rows = dataRows
             .map((arr) => {
