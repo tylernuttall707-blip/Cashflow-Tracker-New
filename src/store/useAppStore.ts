@@ -4,8 +4,9 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AppState, Settings, Adjustment, Transaction, IncomeStream, OneOffSortState } from '../types';
+import type { AppState, Settings, Adjustment, Transaction, IncomeStream, OneOffSortState, ExpandedTransaction, ExpandedSortState } from '../types';
 import { loadState, saveState } from '../modules/storage';
+import { performMigrationIfNeeded } from '../modules/migration';
 
 interface AppStore extends AppState {
   // Actions for settings
@@ -29,6 +30,14 @@ interface AppStore extends AppState {
 
   // Actions for UI state
   setOneOffSort: (sort: OneOffSortState) => void;
+  setExpandedSort: (sort: ExpandedSortState) => void;
+
+  // Actions for expanded transactions
+  addExpandedTransaction: (transaction: ExpandedTransaction) => void;
+  updateExpandedTransaction: (id: string, transaction: ExpandedTransaction) => void;
+  removeExpandedTransaction: (id: string) => void;
+  removeExpandedTransactions: (ids: string[]) => void;  // Bulk delete
+  setExpandedTransactions: (transactions: ExpandedTransaction[]) => void;
 
   // Global actions
   importData: (data: Partial<AppState>) => void;
@@ -49,8 +58,13 @@ const getDefaultState = (): AppState => {
     adjustments: [],
     oneOffs: [],
     incomeStreams: [],
+    expandedTransactions: [],
     ui: {
       oneOffSort: {
+        key: 'date',
+        direction: 'asc',
+      },
+      expandedSort: {
         key: 'date',
         direction: 'asc',
       },
@@ -63,10 +77,17 @@ const getInitialState = (): AppState => {
   try {
     const loaded = loadState();
     if (loaded) {
-      return {
+      const merged = {
         ...getDefaultState(),
         ...loaded,
       };
+      // Perform migration if needed
+      const migrated = performMigrationIfNeeded(merged);
+      // Save the migrated state if migration occurred
+      if (migrated.expandedTransactions.length > 0 && migrated !== merged) {
+        saveState(migrated);
+      }
+      return migrated;
     }
   } catch (err) {
     console.warn('Failed to load state from storage:', err);
@@ -210,6 +231,71 @@ export const useAppStore = create<AppStore>()(
           ...state,
           ui: { ...state.ui, oneOffSort: sort },
         }));
+      },
+
+      setExpandedSort: (sort) => {
+        set((state) => ({
+          ...state,
+          ui: { ...state.ui, expandedSort: sort },
+        }));
+      },
+
+      // Expanded transaction actions
+      addExpandedTransaction: (transaction) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            expandedTransactions: [...state.expandedTransactions, transaction],
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      updateExpandedTransaction: (id, transaction) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            expandedTransactions: state.expandedTransactions.map((t) =>
+              t.id === id ? transaction : t
+            ),
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      removeExpandedTransaction: (id) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            expandedTransactions: state.expandedTransactions.filter((t) => t.id !== id),
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      removeExpandedTransactions: (ids) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            expandedTransactions: state.expandedTransactions.filter((t) => !ids.includes(t.id)),
+          };
+          saveState(newState);
+          return newState;
+        });
+      },
+
+      setExpandedTransactions: (transactions) => {
+        set((state) => {
+          const newState = {
+            ...state,
+            expandedTransactions: transactions,
+          };
+          saveState(newState);
+          return newState;
+        });
       },
 
       // Global actions

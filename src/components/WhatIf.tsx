@@ -36,7 +36,11 @@ export function WhatIf() {
         adjustments,
         oneOffs,
         incomeStreams,
-        ui: { oneOffSort: { key: 'date', direction: 'asc' } },
+        expandedTransactions: [],
+        ui: {
+          oneOffSort: { key: 'date', direction: 'asc' },
+          expandedSort: { key: 'date', direction: 'asc' },
+        },
       });
       setActualProjection(result);
     } catch (err) {
@@ -84,7 +88,11 @@ export function WhatIf() {
         adjustments,
         oneOffs,
         incomeStreams: tweakedStreams,
-        ui: { oneOffSort: { key: 'date', direction: 'asc' } },
+        expandedTransactions: [],
+        ui: {
+          oneOffSort: { key: 'date', direction: 'asc' },
+          expandedSort: { key: 'date', direction: 'asc' },
+        },
       });
       setWhatIfProjection(result);
     } catch (err) {

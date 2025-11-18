@@ -414,8 +414,10 @@ export const defaultState = (): AppState => ({
   adjustments: [],
   oneOffs: [],
   incomeStreams: [],
+  expandedTransactions: [],
   ui: {
     oneOffSort: defaultOneOffSortState(),
+    expandedSort: { key: 'date', direction: 'asc' },
   },
 });
 

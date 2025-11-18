@@ -176,6 +176,12 @@ export const computeProjection = (
   state: AppState,
   overrides: ProjectionOverrides = {}
 ): ProjectionResult => {
+  // Use the new expandedTransactions-based projection if available
+  if (state.expandedTransactions && state.expandedTransactions.length > 0) {
+    return computeProjectionFromExpanded(state, overrides);
+  }
+
+  // Fall back to legacy projection for backward compatibility
   const getStreamMultiplier =
     typeof overrides.getStreamMultiplier === "function" ? overrides.getStreamMultiplier : () => 1;
   const transformStreamAmount =
@@ -405,6 +411,130 @@ export const computeProjection = (
     const totalWeeks = totalDays / 7;
     if (totalWeeks > 0) {
       projectedWeeklyIncome = totalStreamIncome / totalWeeks;
+    }
+  }
+
+  return {
+    cal: calendar,
+    totalIncome,
+    totalExpenses,
+    endBalance: running,
+    projectedWeeklyIncome,
+    lowestBalance,
+    lowestBalanceDate,
+    peakBalance,
+    peakBalanceDate,
+    firstNegativeDate,
+    negativeDays,
+  };
+};
+
+/**
+ * Compute a cash-flow projection using expandedTransactions (simplified version)
+ * @param state - Application state containing settings and expandedTransactions
+ * @param overrides - Optional overrides for multiplier/transform hooks (for income streams)
+ * @returns Projection summary including calendar rows and balance stats
+ */
+export const computeProjectionFromExpanded = (
+  state: AppState,
+  _overrides: ProjectionOverrides = {}
+): ProjectionResult => {
+  const { settings, expandedTransactions = [], adjustments = [] } = state || {};
+  if (!settings) {
+    throw new Error("State missing settings for projection");
+  }
+
+  const calendar = generateCalendar(settings.startDate, settings.endDate);
+  const byDate = new Map(calendar.map((row) => [row.date, row]));
+
+  // Process all expanded transactions
+  for (const tx of expandedTransactions) {
+    const row = byDate.get(tx.date);
+    if (!row) continue;
+
+    const amount = Math.abs(Number(tx.amount || 0));
+    if (!amount) continue;
+
+    const label = `${tx.name}${tx.category ? ` – ${tx.category}` : ''}`;
+
+    if (tx.type === "expense") {
+      row.expenses += amount;
+      row.expenseDetails.push({ source: label, amount });
+    } else {
+      row.income += amount;
+      row.incomeDetails.push({ source: label, amount });
+    }
+  }
+
+  // Process adjustments
+  adjustments.forEach((adj) => {
+    const row = byDate.get(adj?.date);
+    if (!row) return;
+    const amount = Number(adj.amount || 0);
+    const label = adj?.note ? `Adjustment – ${adj.note}` : "Adjustment";
+    if (amount >= 0) {
+      row.income += amount;
+      row.incomeDetails.push({ source: label, amount });
+    } else {
+      const absAmount = Math.abs(amount);
+      row.expenses += absAmount;
+      row.expenseDetails.push({ source: label, amount: absAmount });
+    }
+  });
+
+  // Calculate running balance and statistics
+  let running = round2(Number(settings.startingBalance || 0));
+  let totalIncome = 0;
+  let totalExpenses = 0;
+  let lowestBalance = Number.isFinite(running) ? running : 0;
+  let lowestBalanceDate: YMDString = settings.startDate || (calendar.length ? calendar[0].date : "");
+  let peakBalance = lowestBalance;
+  let peakBalanceDate: YMDString = lowestBalanceDate;
+  let firstNegativeDate: YMDString | null = null;
+  let negativeDays = 0;
+
+  for (const row of calendar) {
+    row.income = round2(row.income);
+    row.expenses = round2(row.expenses);
+    row.net = round2(row.income - row.expenses);
+    running = round2(running + row.net);
+    row.running = running;
+    totalIncome += row.income;
+    totalExpenses += row.expenses;
+
+    if (row.running < lowestBalance) {
+      lowestBalance = row.running;
+      lowestBalanceDate = row.date;
+    }
+    if (row.running > peakBalance) {
+      peakBalance = row.running;
+      peakBalanceDate = row.date;
+    }
+    if (row.running < 0) {
+      negativeDays += 1;
+      if (!firstNegativeDate) firstNegativeDate = row.date;
+    }
+  }
+
+  // Calculate projected weekly income
+  let projectedWeeklyIncome = 0;
+  const startDate = fromYMD(settings.startDate);
+  const endDate = fromYMD(settings.endDate);
+  if (
+    startDate instanceof Date &&
+    endDate instanceof Date &&
+    !Number.isNaN(startDate.getTime()) &&
+    !Number.isNaN(endDate.getTime()) &&
+    endDate >= startDate
+  ) {
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const totalDays = Math.floor((endDate.getTime() - startDate.getTime()) / MS_PER_DAY) + 1;
+    const totalWeeks = totalDays / 7;
+    if (totalWeeks > 0) {
+      // Calculate weekly income from income transactions only
+      const incomeTransactions = expandedTransactions.filter(tx => tx.type === 'income');
+      const totalIncomeFromTransactions = incomeTransactions.reduce((sum, tx) => sum + Math.abs(Number(tx.amount || 0)), 0);
+      projectedWeeklyIncome = totalIncomeFromTransactions / totalWeeks;
     }
   }
 

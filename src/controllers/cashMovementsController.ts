@@ -223,6 +223,7 @@ function getOneOffSortState(STATE: AppState): OneOffSortState {
   if (!STATE.ui || typeof STATE.ui !== 'object') {
     STATE.ui = {
       oneOffSort: { key: 'date', direction: 'asc' },
+      expandedSort: { key: 'date', direction: 'asc' },
     };
     return STATE.ui.oneOffSort;
   }
