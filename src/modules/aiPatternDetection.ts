@@ -1,4 +1,4 @@
-import type { AppState, ProjectionResult, CalendarRow } from '../types';
+import type { AppState, ProjectionResult, CalendarRow, TransactionDetail } from '../types';
 import { computeProjection } from './calculations';
 import { fromYMD, toYMD } from './dateUtils';
 
@@ -103,8 +103,8 @@ function analyzeOverdrafts(_state: AppState, projection: ProjectionResult): AIIn
     // Large expenses on the day caused the overdraft
     if (firstOverdraft.expenses > 0) {
       // Find the largest expense source
-      const largestExpense = firstOverdraft.expenseDetails.reduce((max: any, detail: any) =>
-        detail.amount > (max?.amount || 0) ? detail : max, null
+      const largestExpense = firstOverdraft.expenseDetails.reduce((max: TransactionDetail | null, detail: TransactionDetail) =>
+        detail.amount > (max?.amount || 0) ? detail : max, null as TransactionDetail | null
       );
 
       if (largestExpense && largestExpense.amount > Math.abs(firstOverdraft.running)) {
@@ -248,7 +248,7 @@ function analyzeCashFlowPatterns(state: AppState, projection: ProjectionResult):
 
   // Find low balance periods (consecutive days with low balance)
   const lowBalanceThreshold = state.settings.startingBalance * 0.2;
-  let lowBalancePeriods: { start: string; end: string; days: number; minBalance: number }[] = [];
+  const lowBalancePeriods: { start: string; end: string; days: number; minBalance: number }[] = [];
   let currentPeriod: { start: string; minBalance: number; days: number } | null = null;
 
   projection.cal.forEach((day: CalendarRow, index: number) => {
@@ -346,9 +346,9 @@ function generateOptimizationSuggestions(_state: AppState, projection: Projectio
 
     // Find large recurring expenses
     daysBeforeOverdraft.forEach((day: CalendarRow) => {
-      const largeExpenses = day.expenseDetails.filter((expense: any) => expense.amount > 100);
+      const largeExpenses = day.expenseDetails.filter((expense: TransactionDetail) => expense.amount > 100);
 
-      largeExpenses.forEach((expense: any) => {
+      largeExpenses.forEach((expense: TransactionDetail) => {
         // Find when the balance is healthy enough to handle this expense
         const healthyDays = projection.cal.filter((d: CalendarRow) => {
           const dDate = fromYMD(d.date);
@@ -381,7 +381,7 @@ function generateOptimizationSuggestions(_state: AppState, projection: Projectio
 
   // Deduplicate similar suggestions
   const uniqueInsights = insights.filter((insight, index, self) =>
-    index === self.findIndex((i: any) => i.title === insight.title && i.description === insight.description)
+    index === self.findIndex((i: AIInsight) => i.title === insight.title && i.description === insight.description)
   );
 
   return uniqueInsights.slice(0, 5); // Limit to top 5 optimization suggestions
