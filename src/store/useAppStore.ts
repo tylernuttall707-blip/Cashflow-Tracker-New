@@ -133,7 +133,7 @@ const getInitialState = (): AppState => {
 
 export const useAppStore = create<AppStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...getInitialState(),
 
       // Settings actions
@@ -550,8 +550,8 @@ export const useAppStore = create<AppStore>()(
         });
       },
 
-      getScenarioVersions: (scenarioId: string) => {
-        const state = useAppStore.getState();
+      getScenarioVersions: (scenarioId: string): ScenarioVersion[] => {
+        const state = get();
         return (state.scenarioVersions || [])
           .filter((v: ScenarioVersion) => v.scenarioId === scenarioId)
           .sort((a: ScenarioVersion, b: ScenarioVersion) => b.versionNumber - a.versionNumber);
