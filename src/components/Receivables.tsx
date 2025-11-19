@@ -28,13 +28,34 @@ export function Receivables() {
     reader.onload = (event) => {
       try {
         const text = event.target?.result as string;
-        // Simple CSV parsing - in production, use a proper CSV library
+        // CSV parsing with support for quoted fields
         const lines = text.split('\n');
+
+        // Helper function to parse CSV line with quoted field support
+        const parseCSVLine = (line: string): string[] => {
+          const result: string[] = [];
+          let current = '';
+          let inQuotes = false;
+
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+              inQuotes = !inQuotes;
+            } else if (char === ',' && !inQuotes) {
+              result.push(current.trim());
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          result.push(current.trim());
+          return result;
+        };
 
         const parsed: ARInvoice[] = lines.slice(1)
           .filter(line => line.trim())
           .map((line) => {
-            const values = line.split(',').map(v => v.trim());
+            const values = parseCSVLine(line);
             return {
               id: crypto.randomUUID(),
               company: values[0] || '',

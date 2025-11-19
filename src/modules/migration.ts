@@ -68,9 +68,9 @@ export const expandRecurringTransaction = (
   for (
     let cursor = new Date(effectiveStart.getTime());
     cursor <= effectiveEnd;
-    cursor.setDate(cursor.getDate() + 1)
   ) {
     if (!shouldApplyStreamOn(cursor, transaction)) {
+      cursor.setDate(cursor.getDate() + 1);
       continue;
     }
 
@@ -93,6 +93,7 @@ export const expandRecurringTransaction = (
     });
 
     previousOccurrence = new Date(cursor.getTime());
+    cursor.setDate(cursor.getDate() + 1);
   }
 
   return results;
@@ -126,9 +127,9 @@ export const expandIncomeStream = (
   for (
     let cursor = new Date(effectiveStart.getTime());
     cursor <= effectiveEnd;
-    cursor.setDate(cursor.getDate() + 1)
   ) {
     if (!shouldApplyStreamOn(cursor, stream)) {
+      cursor.setDate(cursor.getDate() + 1);
       continue;
     }
 
@@ -148,6 +149,7 @@ export const expandIncomeStream = (
     });
 
     previousOccurrence = new Date(cursor.getTime());
+    cursor.setDate(cursor.getDate() + 1);
   }
 
   return results;
@@ -217,9 +219,7 @@ export const performMigrationIfNeeded = (state: AppState): AppState => {
     return state;
   }
 
-  console.log('Migrating legacy transactions to expanded format...');
   const expandedTransactions = migrateToExpandedTransactions(state);
-  console.log(`Migrated ${expandedTransactions.length} expanded transactions`);
 
   return {
     ...state,

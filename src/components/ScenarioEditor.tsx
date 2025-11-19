@@ -61,7 +61,7 @@ export function ScenarioEditor({ scenario }: ScenarioEditorProps) {
       setColor(scenario.color);
       setNotes(scenario.notes || '');
     }
-  }, [scenario?.id]);
+  }, [scenario]);
 
   // Compute projection when scenario changes
   useEffect(() => {
