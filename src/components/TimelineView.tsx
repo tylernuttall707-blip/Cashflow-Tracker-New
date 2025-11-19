@@ -387,7 +387,7 @@ function generateMonthView(year: number, month: number, transactions: ExpandedTr
   const cells: DayCell[] = [];
   const today = toYMD(new Date());
 
-  for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+  for (let d = new Date(startDate); d <= endDate; ) {
     const dateStr = toYMD(d);
     const isCurrentMonth = d.getMonth() === month;
     const isToday = dateStr === today;
@@ -399,6 +399,7 @@ function generateMonthView(year: number, month: number, transactions: ExpandedTr
       isCurrentMonth,
       isToday,
     });
+    d.setDate(d.getDate() + 1);
   }
 
   return cells;

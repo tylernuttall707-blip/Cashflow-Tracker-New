@@ -148,7 +148,7 @@ export function CashMovements() {
       nthWeekday: form.nthWeekday || 0,
     };
 
-    for (let cursor = new Date(start.getTime()); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+    for (let cursor = new Date(start.getTime()); cursor <= end; ) {
       if (shouldApplyStreamOn(cursor, stream)) {
         const dateYMD = toYMD(cursor);
         results.push({
@@ -163,6 +163,7 @@ export function CashMovements() {
           parentName: form.name,
         });
       }
+      cursor.setDate(cursor.getDate() + 1);
     }
 
     return results;

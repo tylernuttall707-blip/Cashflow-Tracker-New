@@ -61,7 +61,7 @@ export function WhatIf() {
             multiplier = 1 + streamTweak.pct / 100;
           } else if (streamTweak.lastEdited === 'delta') {
             const newAmount = stream.amount + streamTweak.delta;
-            multiplier = newAmount / stream.amount;
+            multiplier = stream.amount !== 0 ? newAmount / stream.amount : 0;
           }
         } else {
           // Apply global tweak
@@ -69,7 +69,7 @@ export function WhatIf() {
             multiplier = 1 + tweaks.global.pct / 100;
           } else if (tweaks.global.lastEdited === 'delta') {
             const newAmount = stream.amount + tweaks.global.delta;
-            multiplier = newAmount / stream.amount;
+            multiplier = stream.amount !== 0 ? newAmount / stream.amount : 0;
           }
         }
 

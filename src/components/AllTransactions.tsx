@@ -92,7 +92,9 @@ export function AllTransactions() {
   };
 
   const handleSelectAll = () => {
-    if (selectedIds.size === filteredAndSorted.length) {
+    if (filteredAndSorted.length === 0) {
+      setSelectedIds(new Set());
+    } else if (selectedIds.size === filteredAndSorted.length) {
       setSelectedIds(new Set());
     } else {
       setSelectedIds(new Set(filteredAndSorted.map(tx => tx.id)));
