@@ -118,12 +118,12 @@ export function Receivables() {
         }
 
         // Parse data rows using detected column indices
-        const parsed: ARInvoice[] = lines.slice(1)
+        const parsed = lines.slice(1)
           .map((line) => {
             const values = parseCSVLine(line);
             if (values.length === 0 || values.every(v => !v)) return null;
 
-            return {
+            const invoice: ARInvoice = {
               id: crypto.randomUUID(),
               company: values[companyCol] || '',
               invoice: values[invoiceCol] || '',
@@ -131,8 +131,12 @@ export function Receivables() {
               amount: parseFloat(values[amountCol]?.replace(/[^0-9.-]/g, '') || '0') || 0,
               conf: arOptions.conf,
             };
+            return invoice;
           })
-          .filter((inv): inv is ARInvoice => inv !== null && inv.company && inv.invoice && inv.due && inv.amount !== 0);
+          .filter((inv): inv is ARInvoice => {
+            if (inv === null) return false;
+            return inv.company.length > 0 && inv.invoice.length > 0 && inv.due.length > 0 && inv.amount !== 0;
+          });
 
         setInvoices(parsed);
         alert(`Parsed ${parsed.length} invoices from file`);
