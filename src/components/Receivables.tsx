@@ -29,7 +29,12 @@ export function Receivables() {
       try {
         const text = event.target?.result as string;
         // CSV parsing with support for quoted fields
-        const lines = text.split('\n');
+        const lines = text.split('\n').filter(line => line.trim());
+
+        if (lines.length === 0) {
+          alert('File is empty');
+          return;
+        }
 
         // Helper function to parse CSV line with quoted field support
         const parseCSVLine = (line: string): string[] => {
@@ -52,19 +57,82 @@ export function Receivables() {
           return result;
         };
 
+        // Normalize header for fuzzy matching
+        const normalizeHeader = (header: string): string => {
+          return header
+            .replace(/^\uFEFF/, '') // Remove BOM
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '');
+        };
+
+        // Parse header row
+        const headerLine = lines[0];
+        const headers = parseCSVLine(headerLine);
+        const normalizedHeaders = headers.map(h => normalizeHeader(h));
+
+        // Column detection candidates
+        const COMPANY_CANDIDATES = ['customer', 'distributor', 'company', 'billto', 'soldto', 'cmoname'];
+        const INVOICE_CANDIDATES = ['invoice', 'inv', 'doc', 'document', 'reference', 'ref', 'arparinvoiceid', 'arpinvoiceid'];
+        const DUE_CANDIDATES = ['due', 'duedate', 'duedt', 'netdue', 'maturity', 'arpduedate'];
+        const AMOUNT_CANDIDATES = ['openamount', 'balance', 'amtdue', 'amount', 'outstanding', 'openbal', 'arpinvoicebalancebase'];
+
+        // Find best matching column for each field
+        const findColumn = (candidates: string[]): number => {
+          // First pass: look for exact matches
+          for (let i = 0; i < normalizedHeaders.length; i++) {
+            const normalized = normalizedHeaders[i];
+            for (const candidate of candidates) {
+              const normalizedCandidate = normalizeHeader(candidate);
+              if (normalized === normalizedCandidate) {
+                return i;
+              }
+            }
+          }
+          // Second pass: look for partial matches
+          for (let i = 0; i < normalizedHeaders.length; i++) {
+            const normalized = normalizedHeaders[i];
+            for (const candidate of candidates) {
+              const normalizedCandidate = normalizeHeader(candidate);
+              if (normalized.includes(normalizedCandidate) && normalizedCandidate.length >= 3) {
+                return i;
+              }
+            }
+          }
+          return -1;
+        };
+
+        const companyCol = findColumn(COMPANY_CANDIDATES);
+        const invoiceCol = findColumn(INVOICE_CANDIDATES);
+        const dueCol = findColumn(DUE_CANDIDATES);
+        const amountCol = findColumn(AMOUNT_CANDIDATES);
+
+        // Validate that we found all required columns
+        if (companyCol === -1 || invoiceCol === -1 || dueCol === -1 || amountCol === -1) {
+          const missing: string[] = [];
+          if (companyCol === -1) missing.push('company/customer');
+          if (invoiceCol === -1) missing.push('invoice');
+          if (dueCol === -1) missing.push('due date');
+          if (amountCol === -1) missing.push('amount/balance');
+          alert(`Could not detect required columns: ${missing.join(', ')}. Please check your CSV format.`);
+          return;
+        }
+
+        // Parse data rows using detected column indices
         const parsed: ARInvoice[] = lines.slice(1)
-          .filter(line => line.trim())
           .map((line) => {
             const values = parseCSVLine(line);
+            if (values.length === 0 || values.every(v => !v)) return null;
+
             return {
               id: crypto.randomUUID(),
-              company: values[0] || '',
-              invoice: values[1] || '',
-              due: values[2] || '',
-              amount: parseFloat(values[3]) || 0,
+              company: values[companyCol] || '',
+              invoice: values[invoiceCol] || '',
+              due: values[dueCol] || '',
+              amount: parseFloat(values[amountCol]?.replace(/[^0-9.-]/g, '') || '0') || 0,
               conf: arOptions.conf,
             };
-          });
+          })
+          .filter((inv): inv is ARInvoice => inv !== null && inv.company && inv.invoice && inv.due && inv.amount !== 0);
 
         setInvoices(parsed);
         alert(`Parsed ${parsed.length} invoices from file`);
