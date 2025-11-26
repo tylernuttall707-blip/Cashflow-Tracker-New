@@ -128,7 +128,7 @@ interface CashMovementEntry {
   amount?: unknown;
   date?: string;
   expectedDate?: string;
-  dueDate?: string;
+  dueDate?: string | null;
   status?: string;
   source?: string;
   category?: string;
