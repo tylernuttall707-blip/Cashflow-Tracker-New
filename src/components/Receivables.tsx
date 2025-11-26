@@ -3,6 +3,8 @@
  */
 
 import { useState } from 'react';
+import { computeARCategory, computeExpectedDate, defaultARName, makeSourceKey } from '../modules/ar.js';
+import { round2 } from '../modules/calculations.js';
 import { useAppStore } from '../store/useAppStore';
 import type { AROptions, ARInvoice, Transaction } from '../types';
 
@@ -165,35 +167,32 @@ export function Receivables() {
     }
 
     toImport.forEach(inv => {
-      // Apply lag to due date
-      const dueDate = new Date(inv.due);
-      dueDate.setDate(dueDate.getDate() + arOptions.lag);
-
-      // Apply weekend rolling if needed
-      if (arOptions.roll !== 'none') {
-        const day = dueDate.getDay();
-        if (day === 0) { // Sunday
-          dueDate.setDate(dueDate.getDate() + (arOptions.roll === 'forward' ? 1 : -2));
-        } else if (day === 6) { // Saturday
-          dueDate.setDate(dueDate.getDate() + (arOptions.roll === 'forward' ? 2 : -1));
-        }
-      }
-
-      const expectedDate = dueDate.toISOString().slice(0, 10);
-      const adjustedAmount = (inv.amount * inv.conf) / 100;
+      const parsedDue = new Date(inv.due);
+      const dueDate = Number.isNaN(parsedDue.getTime())
+        ? inv.due
+        : parsedDue.toISOString().slice(0, 10);
+      const expectedDate = computeExpectedDate(dueDate, arOptions);
+      const confidence = Math.max(0, Math.min(100, arOptions.conf));
+      const adjustedAmount = round2((inv.amount * confidence) / 100);
+      const sourceKey = makeSourceKey(inv.company, inv.invoice) || undefined;
 
       const transaction: Transaction = {
         id: inv.id,
-        name: `AR: ${inv.company} - ${inv.invoice}`,
-        category: arOptions.category,
+        name: defaultARName(inv.company, inv.invoice),
+        category: computeARCategory(adjustedAmount, arOptions),
         amount: adjustedAmount,
         type: 'income',
         date: expectedDate,
         recurring: false,
         steps: [],
         escalatorPct: 0,
-        source: 'AR Import',
-        status: 'imported',
+        source: 'AR',
+        status: 'pending',
+        company: inv.company,
+        invoice: inv.invoice,
+        dueDate,
+        confidencePct: confidence,
+        ...(sourceKey ? { sourceKey } : {}),
       };
 
       addOneOff(transaction);

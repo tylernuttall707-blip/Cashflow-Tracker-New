@@ -49,6 +49,12 @@ export interface BaseTransaction {
   category: string;
   amount: number;
   note?: string;
+  // Optional AR metadata
+  sourceKey?: string;
+  company?: string;
+  invoice?: string;
+  dueDate?: YMDString | null;
+  confidencePct?: number;
 }
 
 /**
